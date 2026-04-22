@@ -1,0 +1,15 @@
+/Users/amber/Documents/SkillsForUnity/Tools/FrameSyncServer/obj/Debug/net6.0/FrameSyncServer.GeneratedMSBuildEditorConfig.editorconfig
+/Users/amber/Documents/SkillsForUnity/Tools/FrameSyncServer/obj/Debug/net6.0/FrameSyncServer.AssemblyInfoInputs.cache
+/Users/amber/Documents/SkillsForUnity/Tools/FrameSyncServer/obj/Debug/net6.0/FrameSyncServer.AssemblyInfo.cs
+/Users/amber/Documents/SkillsForUnity/Tools/FrameSyncServer/obj/Debug/net6.0/FrameSyncServer.csproj.CoreCompileInputs.cache
+/Users/amber/Documents/SkillsForUnity/Tools/FrameSyncServer/bin/Debug/net6.0/FrameSyncServer
+/Users/amber/Documents/SkillsForUnity/Tools/FrameSyncServer/bin/Debug/net6.0/FrameSyncServer.deps.json
+/Users/amber/Documents/SkillsForUnity/Tools/FrameSyncServer/bin/Debug/net6.0/FrameSyncServer.runtimeconfig.json
+/Users/amber/Documents/SkillsForUnity/Tools/FrameSyncServer/bin/Debug/net6.0/FrameSyncServer.dll
+/Users/amber/Documents/SkillsForUnity/Tools/FrameSyncServer/bin/Debug/net6.0/FrameSyncServer.pdb
+/Users/amber/Documents/SkillsForUnity/Tools/FrameSyncServer/obj/Debug/net6.0/FrameSyncServer.dll
+/Users/amber/Documents/SkillsForUnity/Tools/FrameSyncServer/obj/Debug/net6.0/refint/FrameSyncServer.dll
+/Users/amber/Documents/SkillsForUnity/Tools/FrameSyncServer/obj/Debug/net6.0/FrameSyncServer.pdb
+/Users/amber/Documents/SkillsForUnity/Tools/FrameSyncServer/obj/Debug/net6.0/FrameSyncServer.genruntimeconfig.cache
+/Users/amber/Documents/SkillsForUnity/Tools/FrameSyncServer/obj/Debug/net6.0/ref/FrameSyncServer.dll
+/Users/amber/Documents/SkillsForUnity/Tools/FrameSyncServer/obj/Debug/net6.0/FrameSyncServer.csproj.AssemblyReference.cache

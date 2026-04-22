@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__coplay-mcp__set_unity_project_root",
+      "mcp__coplay-mcp__get_unity_editor_state",
+      "mcp__coplay-mcp__list_files",
+      "mcp__coplay-mcp__list_game_objects_in_hierarchy",
+      "mcp__coplay-mcp__create_ui_element",
+      "mcp__coplay-mcp__get_game_object_info",
+      "mcp__coplay-mcp__set_rect_transform",
+      "mcp__coplay-mcp__add_component",
+      "mcp__coplay-mcp__create_prefab",
+      "mcp__coplay-mcp__delete_game_object",
+      "mcp__coplay-mcp__set_property",
+      "mcp__coplay-mcp__read_file",
+      "mcp__coplay-mcp__set_ui_text",
+      "mcp__coplay-mcp__check_compile_errors"
+    ]
+  }
+}

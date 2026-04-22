@@ -1,0 +1,287 @@
+{
+  "_说明": "角色+技能配置 — 帧数单位基于15Hz（1秒=15帧）。角色引用技能ID，技能独立定义。",
+
+  "ArenaHalf": 10,
+  "TeamSize": 5,
+  "_TeamSize说明": "每方角色数量，双方各选TeamSize个角色",
+
+  "Formation": [
+    {"X": -8, "Y": 0},
+    {"X": -8, "Y": -2},
+    {"X": -8, "Y": -4},
+    {"X": -8, "Y": -6},
+    {"X": -8, "Y": -8}
+  ],
+  "_Formation说明": "P1方初始布阵位置（左侧），P2方自动镜像到右侧（X取反）",
+
+  "_技能类型说明": {
+    "_统一规则": "Damage正数=伤害，负数=治疗。TargetTeam=Enemy/Ally。TargetScope=Single/All/LowestHp。所有技能效果由配置驱动。",
+    "MeleeAttack":    "近战攻击。Param1>0时为锥形AoE（角度=Param1度，半径=Range），命中扇形内所有敌人；Param1=0时为单体",
+    "RangedAttack":   "远程普攻，发射追踪弹射物。Param1=弹射物速度",
+    "AoEProjectile":  "直线飞行AoE弹射物。Param1=弹射物速度, Param2=爆炸半径。可通过Buffs附加效果",
+    "Instant":        "立即生效。根据TargetTeam和TargetScope选择目标，直接施加Damage（正=伤害/负=治疗）+ Buffs",
+    "Blink":          "瞬移到敌人身前（普攻射程内），不造成伤害",
+    "DashStrike":     "冲刺到敌人身前后造成伤害",
+    "KnockbackArrow": "击退箭，发射弹射物命中后击退。Param1=弹射物速度, Param2=击退距离",
+    "Stealth":        "隐身，持续一段时间不会被索敌但可受范围伤害。Param1=隐身帧数",
+    "ReactBlink":     "被动瞬移，受到攻击后自动向后瞬移，有CD。Param1=瞬移距离",
+    "SummonPet":      "召唤召唤物。Param1=召唤物存活帧数, Param2=召唤物血量",
+    "FleeOnHit":      "被动：受到攻击后向远离敌人方向后撤。Param1=后撤距离，有CD",
+    "CritStrike":     "被动：普攻有概率造成双倍伤害。Param1=触发概率%(100=必触发), Param2=伤害倍率%(200=双倍)",
+    "DodgeBlock":     "被动：受到伤害时有概率完全格挡（不格挡治疗）。Param1=触发概率%(100=必触发)",
+    "UltCDReduce":    "被动：对敌人造成伤害时有概率减少大招CD（召唤物伤害不算）。Param1=触发概率%(100=必触发), Param2=减少帧数",
+    "Lifesteal":      "被动：对敌人造成伤害时有概率回复自身血量。Param1=触发概率%(100=必触发), Param2=吸血百分比%(50=回复伤害的50%)"
+  },
+
+  "_Buffs字段说明": "技能可通过Buffs数组附加任意buff。每个buff含: Type(Slow/Stun), Duration(持续帧数), Value(效果值，Slow用0.5=50%移速)。任何技能都可以配置Buffs。",
+
+  "Skills": [
+    {
+      "Id": "warrior_atk", "Name": "斩击",
+      "Type": "MeleeAttack",
+      "Damage": 80, "Range": 1, "Cooldown": 8, "Windup": 1, "Recovery": 1,
+      "Param1": 120, "_Param1说明": "锥形AoE角度（度），120=三分之一圆",
+      "TargetTeam": "Enemy", "TargetScope": "Single"
+    },
+    {
+      "Id": "archer_atk", "Name": "射击",
+      "Type": "RangedAttack",
+      "Damage": 40, "Range": 6, "Cooldown": 12, "Windup": 5, "Recovery": 3,
+      "Param1": 8, "_Param1说明": "弹射物飞行速度",
+      "TargetTeam": "Enemy", "TargetScope": "Single"
+    },
+    {
+      "Id": "assassin_atk", "Name": "刺击",
+      "Type": "MeleeAttack",
+      "Damage": 60, "Range": 1, "Cooldown": 10, "Windup": 1, "Recovery": 1,
+      "TargetTeam": "Enemy", "TargetScope": "Single"
+    },
+    {
+      "Id": "blink", "Name": "瞬移",
+      "Type": "Blink",
+      "Cooldown": 60
+    },
+    {
+      "Id": "knockback_arrow", "Name": "击退箭",
+      "Type": "KnockbackArrow",
+      "Damage": 20, "Cooldown": 40,
+      "Param1": 8, "_Param1说明": "弹射物飞行速度",
+      "Param2": 3, "_Param2说明": "击退距离",
+      "TargetTeam": "Enemy", "TargetScope": "Single"
+    },
+    {
+      "Id": "stun_strike", "Name": "眩晕击",
+      "Type": "Instant",
+      "Damage": 50, "Cooldown": 75,
+      "TargetTeam": "Enemy", "TargetScope": "Single",
+      "Buffs": [{"Type": "Stun", "Duration": 30}],
+      "_Buffs说明": "眩晕30帧（2秒）"
+    },
+    {
+      "Id": "dash_slash", "Name": "裂地斩",
+      "Type": "DashStrike",
+      "Damage": 300, "Cooldown": 150, "Windup": 8, "Recovery": 6,
+      "TargetTeam": "Enemy", "TargetScope": "Single"
+    },
+    {
+      "Id": "arrow_rain", "Name": "箭雨",
+      "Type": "Instant",
+      "Damage": 250, "Cooldown": 120, "Windup": 6, "Recovery": 5,
+      "TargetTeam": "Enemy", "TargetScope": "All"
+    },
+    {
+      "Id": "stealth", "Name": "隐身",
+      "Type": "Stealth",
+      "Cooldown": 180, "Windup": 1, "Recovery": 0,
+      "Param1": 45, "_Param1说明": "隐身持续帧数（45=3秒）",
+      "TargetTeam": "Ally", "TargetScope": "Single"
+    },
+    {
+      "Id": "mage_fireball", "Name": "火球术",
+      "_说明": "法师普攻：直线飞行火球，碰到敌人或到达最大距离后爆炸，爆炸范围内造成AoE伤害",
+      "Type": "AoEProjectile",
+      "Damage": 80, "Range": 6, "Cooldown": 25, "Windup": 6, "Recovery": 4,
+      "Param1": 6, "_Param1说明": "弹射物飞行速度",
+      "Param2": 2, "_Param2说明": "爆炸半径",
+      "TargetTeam": "Enemy", "TargetScope": "Single"
+    },
+    {
+      "Id": "react_blink", "Name": "闪避瞬移",
+      "_说明": "法师副技能：受到攻击后自动向后瞬移，被动触发，有CD",
+      "Type": "ReactBlink",
+      "Cooldown": 90,
+      "Param1": 4, "_Param1说明": "后退瞬移距离"
+    },
+    {
+      "Id": "summon_snowman", "Name": "召唤雪人",
+      "_说明": "法师大招：召唤雪人助战，雪人有血量和存活时间，继承法师索敌规则",
+      "Type": "SummonPet",
+      "Cooldown": 180, "Windup": 6, "Recovery": 3,
+      "Param1": 150, "_Param1说明": "雪人存活帧数（150=10秒）",
+      "Param2": 500, "_Param2说明": "雪人血量"
+    },
+    {
+      "Id": "snowman_iceball", "Name": "冰球",
+      "_说明": "雪人普攻：直线飞行冰球，爆炸后造成AoE伤害并减速敌人",
+      "Type": "AoEProjectile",
+      "Damage": 40, "Range": 6, "Cooldown": 20, "Windup": 4, "Recovery": 3,
+      "Param1": 6, "_Param1说明": "弹射物飞行速度",
+      "Param2": 2, "_Param2说明": "爆炸半径",
+      "Buffs": [{"Type": "Slow", "Duration": 30, "Value": 0.5}],
+      "_Buffs说明": "减速30帧（2秒），移速降为50%"
+    },
+    {
+      "Id": "healer_orb", "Name": "魔法球",
+      "_说明": "医疗师普攻：投掷追踪魔法球，必定命中，少量伤害",
+      "Type": "RangedAttack",
+      "Damage": 25, "Range": 6, "Cooldown": 15, "Windup": 4, "Recovery": 3,
+      "Param1": 7, "_Param1说明": "弹射物飞行速度",
+      "TargetTeam": "Enemy", "TargetScope": "Single"
+    },
+    {
+      "Id": "single_heal", "Name": "治愈术",
+      "_说明": "医疗师副技能：单体治疗，无距离限制，优先血量最低的友方（含自身）",
+      "Type": "Instant",
+      "Damage": -200,
+      "Cooldown": 45, "Windup": 3, "Recovery": 2,
+      "TargetTeam": "Ally", "TargetScope": "LowestHp"
+    },
+    {
+      "Id": "group_heal", "Name": "圣光普照",
+      "_说明": "医疗师大招：群体治疗，治疗所有友方角色（包括自己）",
+      "Type": "Instant",
+      "Damage": -300, "Cooldown": 150, "Windup": 8, "Recovery": 5,
+      "TargetTeam": "Ally", "TargetScope": "All"
+    },
+    {
+      "Id": "flee_on_hit", "Name": "受击后撤",
+      "_说明": "被动技能：受到攻击后向远离敌人方向后撤一段距离",
+      "Type": "FleeOnHit",
+      "Cooldown": 0,
+      "Param1": 4, "_Param1说明": "后撤距离"
+    },
+    {
+      "Id": "crit_strike", "Name": "暴击",
+      "_说明": "被动技能：普攻有概率造成双倍伤害",
+      "Type": "CritStrike",
+      "Cooldown": 0,
+      "Param1": 30, "_Param1说明": "触发概率30%",
+      "Param2": 200, "_Param2说明": "伤害倍率200%（即双倍）"
+    },
+    {
+      "Id": "dodge_block", "Name": "格挡",
+      "_说明": "被动技能：受到伤害时有概率完全格挡（不格挡治疗）",
+      "Type": "DodgeBlock",
+      "Cooldown": 0,
+      "Param1": 25, "_Param1说明": "触发概率25%"
+    },
+    {
+      "Id": "ult_cd_reduce", "Name": "奥术涌流",
+      "_说明": "被动技能：对敌人造成伤害时有概率减少大招CD（召唤物伤害不算）",
+      "Type": "UltCDReduce",
+      "Cooldown": 0,
+      "Param1": 30, "_Param1说明": "触发概率30%",
+      "Param2": 15, "_Param2说明": "减少15帧（1秒）"
+    },
+    {
+      "Id": "lifesteal", "Name": "生命汲取",
+      "_说明": "被动技能：对敌人造成伤害时有概率回复自身血量",
+      "Type": "Lifesteal",
+      "Cooldown": 0,
+      "Param1": 30, "_Param1说明": "触发概率30%",
+      "Param2": 50, "_Param2说明": "吸血50%（回复造成伤害的50%）"
+    }
+  ],
+
+  "TargetPriority": [
+    {"Profession": "Warrior",  "_职业": "战士", "Priority": [], "_优先级": "无优先级（选最近）"},
+    {"Profession": "Mage",     "_职业": "法师", "Priority": [], "_优先级": "无优先级（选最近）"},
+    {"Profession": "Archer",   "_职业": "射手", "Priority": [], "_优先级": "无优先级（选最近）"},
+    {"Profession": "Assassin", "_职业": "刺客", "Priority": ["Archer", "Mage", "Support", "Assassin", "Warrior"], "_优先级": "射手>法师>辅助>刺客>战士"},
+    {"Profession": "Support",  "_职业": "辅助", "Priority": [], "_优先级": "无优先级（选最近）"}
+  ],
+  "_TargetPriority说明": "每个职业的索敌优先级列表（从高到低），优先攻击列表中靠前的职业",
+  "_职业枚举说明": "Warrior=战士, Mage=法师, Archer=射手, Assassin=刺客, Support=辅助",
+
+  "_Warrior说明": "剑士 — 近战战士，高血量低移速，锥形AoE斩击，副技能眩晕击，大招裂地斩",
+  "Warrior": {
+    "MaxHp": 2000,
+    "MoveSpeed": 1,
+    "TurnSpeed": 8,
+    "CollisionRadius": 0.5,
+    "HeadIcon": "HeadIcons/warrior",
+    "Profession": "Warrior", "_职业": "战士",
+    "Passive": "crit_strike", "_被动": "暴击（普攻概率双倍伤害）",
+    "NormalAttack": "warrior_atk", "_普攻": "斩击（锥形AoE）",
+    "Skill2": "stun_strike", "_副技能": "眩晕击",
+    "Ultimate": "dash_slash", "_大招": "裂地斩（冲刺斩）"
+  },
+
+  "_Archer说明": "弓手 — 远程射手，中等血量高移速，远程追踪弹射物，被动受击后撤，副技能击退箭，大招箭雨（全图AoE）",
+  "Archer": {
+    "MaxHp": 1500,
+    "MoveSpeed": 3,
+    "TurnSpeed": 10,
+    "CollisionRadius": 0.5,
+    "HeadIcon": "HeadIcons/archer",
+    "Profession": "Archer", "_职业": "射手",
+    "Passive": "flee_on_hit", "_被动": "受击后撤",
+    "NormalAttack": "archer_atk", "_普攻": "射击（远程弹射物）",
+    "Skill2": "knockback_arrow", "_副技能": "击退箭",
+    "Ultimate": "arrow_rain", "_大招": "箭雨（全图命中）"
+  },
+
+  "_Assassin说明": "刺客 — 近战刺客，低血量中移速，单体刺击，副技能瞬移，大招隐身",
+  "Assassin": {
+    "MaxHp": 1000,
+    "MoveSpeed": 2,
+    "TurnSpeed": 10,
+    "CollisionRadius": 0.5,
+    "HeadIcon": "HeadIcons/assassin",
+    "Profession": "Assassin", "_职业": "刺客",
+    "Passive": "dodge_block", "_被动": "格挡（概率免疫伤害）",
+    "NormalAttack": "assassin_atk", "_普攻": "刺击（单体近战）",
+    "Skill2": "blink", "_副技能": "瞬移",
+    "Ultimate": "stealth", "_大招": "隐身"
+  },
+
+  "_Mage说明": "法师 — 远程法师，中等血量，火球术AoE普攻，副技能被动瞬移，大招召唤雪人",
+  "Mage": {
+    "MaxHp": 1200,
+    "MoveSpeed": 2,
+    "TurnSpeed": 10,
+    "CollisionRadius": 0.5,
+    "HeadIcon": "HeadIcons/mage",
+    "Profession": "Mage", "_职业": "法师",
+    "Passive": "ult_cd_reduce", "_被动": "奥术涌流（造成伤害概率减少大招CD）",
+    "NormalAttack": "mage_fireball", "_普攻": "火球术（直线AoE弹射物）",
+    "Skill2": "react_blink", "_副技能": "闪避瞬移（被动触发）",
+    "Ultimate": "summon_snowman", "_大招": "召唤雪人"
+  },
+
+  "_Snowman说明": "雪人 — 法师召唤物，有血量和存活时间，冰球普攻带减速，本体死亡后消失",
+  "Snowman": {
+    "MaxHp": 500,
+    "MoveSpeed": 1,
+    "TurnSpeed": 10,
+    "CollisionRadius": 0.5,
+    "HeadIcon": "HeadIcons/snowman",
+    "Profession": "Mage", "_职业": "法师（继承法师索敌规则）",
+    "Passive": "",
+    "NormalAttack": "snowman_iceball", "_普攻": "冰球（AoE弹射物+减速）"
+  },
+
+  "_Healer说明": "医疗师 — 远程辅助，中等血量，魔法球普攻少量伤害，副技能单体治疗（优先最低血量友方），大招群体治疗",
+  "Healer": {
+    "MaxHp": 1300,
+    "MoveSpeed": 2,
+    "TurnSpeed": 10,
+    "CollisionRadius": 0.5,
+    "HeadIcon": "HeadIcons/healer",
+    "Profession": "Support", "_职业": "辅助",
+    "Passive": "lifesteal", "_被动": "生命汲取（造成伤害概率回血）",
+    "NormalAttack": "healer_orb", "_普攻": "魔法球（远程追踪弹射物）",
+    "Skill2": "single_heal", "_副技能": "治愈术（单体治疗）",
+    "Ultimate": "group_heal", "_大招": "圣光普照（群体治疗）"
+  }
+}

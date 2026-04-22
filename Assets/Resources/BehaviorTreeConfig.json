@@ -1,0 +1,187 @@
+{
+  "_说明": "行为树配置 — 通过JSON驱动角色AI逻辑。大招由Tick层拦截处理（打断一切状态立即释放），不在行为树中配置",
+  "_节点类型": "selector(选择) / sequence(顺序) / condition(条件) / action(动作)",
+  "_条件列表": "IsFleeing, NotCasting, NotMoving, EnemyInAtkRange, EnemyOutOfAtkRange, Skill2CdReady, AtkCdReady, UltCdReady, UltRequested, FacingTarget",
+  "_动作列表": "DoFlee(持续逃跑), DoMoveToward(持续追击), ExecuteSkill2(副技能), BeginCastUlt(大招), BeginCastAtk(普攻)",
+
+  "Warrior": {
+    "type": "selector",
+    "children": [
+      {
+        "_说明": "逃跑中：继续跑完",
+        "type": "sequence",
+        "children": [
+          { "type": "condition", "check": ["IsFleeing"] },
+          { "type": "action", "run": "DoFlee" }
+        ]
+      },
+      {
+        "_说明": "副技能：眩晕击（CD好 + 没在施法 + 停下 + 射程内 + 朝向敌人）",
+        "type": "sequence",
+        "children": [
+          { "type": "condition", "check": ["Skill2CdReady", "NotCasting", "NotMoving", "EnemyInAtkRange", "FacingTarget"] },
+          { "type": "action", "run": "ExecuteSkill2" }
+        ]
+      },
+      {
+        "_说明": "普攻：斩击（停下 + 没在施法 + 射程内 + CD好 + 朝向敌人）",
+        "type": "sequence",
+        "children": [
+          { "type": "condition", "check": ["NotMoving", "NotCasting", "EnemyInAtkRange", "AtkCdReady", "FacingTarget"] },
+          { "type": "action", "run": "BeginCastAtk" }
+        ]
+      },
+      {
+        "_说明": "转向+追击：先转向再移动",
+        "type": "action",
+        "run": "DoMoveToward"
+      }
+    ]
+  },
+
+  "Archer": {
+    "type": "selector",
+    "children": [
+      {
+        "_说明": "被击逃跑中：跑够位移距离后停下攻击",
+        "type": "sequence",
+        "children": [
+          { "type": "condition", "check": ["IsFleeing"] },
+          { "type": "action", "run": "DoFlee" }
+        ]
+      },
+      {
+        "_说明": "副技能：击退箭（CD好 + 没在施法 + 停下 + 射程内 + 朝向敌人）",
+        "type": "sequence",
+        "children": [
+          { "type": "condition", "check": ["Skill2CdReady", "NotCasting", "NotMoving", "EnemyInAtkRange", "FacingTarget"] },
+          { "type": "action", "run": "ExecuteSkill2" }
+        ]
+      },
+      {
+        "_说明": "普攻：射击（停下 + 没在施法 + 射程内 + CD好 + 朝向敌人）",
+        "type": "sequence",
+        "children": [
+          { "type": "condition", "check": ["NotMoving", "NotCasting", "EnemyInAtkRange", "AtkCdReady", "FacingTarget"] },
+          { "type": "action", "run": "BeginCastAtk" }
+        ]
+      },
+      {
+        "_说明": "转向+靠近：先转向再移动",
+        "type": "action",
+        "run": "DoMoveToward"
+      }
+    ]
+  },
+
+  "Assassin": {
+    "type": "selector",
+    "children": [
+      {
+        "_说明": "逃跑中：继续跑完",
+        "type": "sequence",
+        "children": [
+          { "type": "condition", "check": ["IsFleeing"] },
+          { "type": "action", "run": "DoFlee" }
+        ]
+      },
+      {
+        "_说明": "副技能：瞬移（CD好 + 距离远于普攻射程 + 没在施法）",
+        "type": "sequence",
+        "children": [
+          { "type": "condition", "check": ["Skill2CdReady", "NotCasting", "EnemyOutOfAtkRange"] },
+          { "type": "action", "run": "ExecuteSkill2" }
+        ]
+      },
+      {
+        "_说明": "普攻：刺击（停下 + 没在施法 + 射程内 + CD好 + 朝向敌人）",
+        "type": "sequence",
+        "children": [
+          { "type": "condition", "check": ["NotMoving", "NotCasting", "EnemyInAtkRange", "AtkCdReady", "FacingTarget"] },
+          { "type": "action", "run": "BeginCastAtk" }
+        ]
+      },
+      {
+        "_说明": "转向+追击：先转向再移动",
+        "type": "action",
+        "run": "DoMoveToward"
+      }
+    ]
+  },
+
+  "Mage": {
+    "_说明": "法师AI — 副技能为被动触发不在行为树中，不触发移动后撤",
+    "type": "selector",
+    "children": [
+      {
+        "_说明": "普攻：火球术（停下 + 没在施法 + 射程内 + CD好 + 朝向敌人）",
+        "type": "sequence",
+        "children": [
+          { "type": "condition", "check": ["NotMoving", "NotCasting", "EnemyInAtkRange", "AtkCdReady", "FacingTarget"] },
+          { "type": "action", "run": "BeginCastAtk" }
+        ]
+      },
+      {
+        "_说明": "追击：靠近敌人",
+        "type": "action",
+        "run": "DoMoveToward"
+      }
+    ]
+  },
+
+  "Snowman": {
+    "_说明": "雪人AI — 只有普攻，无副技能无大招",
+    "type": "selector",
+    "children": [
+      {
+        "_说明": "普攻：冰球（射程内 + CD好 + 朝向敌人）",
+        "type": "sequence",
+        "children": [
+          { "type": "condition", "check": ["NotMoving", "NotCasting", "EnemyInAtkRange", "AtkCdReady", "FacingTarget"] },
+          { "type": "action", "run": "BeginCastAtk" }
+        ]
+      },
+      {
+        "_说明": "追击：靠近敌人",
+        "type": "action",
+        "run": "DoMoveToward"
+      }
+    ]
+  },
+
+  "Healer": {
+    "_说明": "医疗师AI — 优先治疗队友（副技能），然后普攻敌人，被攻击后逃跑",
+    "type": "selector",
+    "children": [
+      {
+        "_说明": "逃跑中：继续跑",
+        "type": "sequence",
+        "children": [
+          { "type": "condition", "check": ["IsFleeing"] },
+          { "type": "action", "run": "DoFlee" }
+        ]
+      },
+      {
+        "_说明": "治愈术：队友需要治疗 + CD好 + 没在施法",
+        "type": "sequence",
+        "children": [
+          { "type": "condition", "check": ["NotCasting", "Skill2CdReady", "AllyNeedsHeal"] },
+          { "type": "action", "run": "ExecuteSkill2" }
+        ]
+      },
+      {
+        "_说明": "普攻：魔法球（停下 + 没在施法 + 射程内 + CD好 + 朝向敌人）",
+        "type": "sequence",
+        "children": [
+          { "type": "condition", "check": ["NotMoving", "NotCasting", "EnemyInAtkRange", "AtkCdReady", "FacingTarget"] },
+          { "type": "action", "run": "BeginCastAtk" }
+        ]
+      },
+      {
+        "_说明": "追击：靠近敌人",
+        "type": "action",
+        "run": "DoMoveToward"
+      }
+    ]
+  }
+}

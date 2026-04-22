@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 25.0.1706.7
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FrameSyncServer", "FrameSyncServer.csproj", "{DFE05E87-B04C-4A43-9018-AF163D034C85}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{DFE05E87-B04C-4A43-9018-AF163D034C85}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DFE05E87-B04C-4A43-9018-AF163D034C85}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DFE05E87-B04C-4A43-9018-AF163D034C85}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DFE05E87-B04C-4A43-9018-AF163D034C85}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {5139170E-CBBA-45CD-ACBE-F4161A2EEECF}
+	EndGlobalSection
+EndGlobal
