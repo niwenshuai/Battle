@@ -227,8 +227,8 @@ namespace FrameSync
 
             Hp = MaxHp;
             AtkCooldownLeft = 0;
-            UltCooldownLeft = 0;
-            Skill2CooldownLeft = 0;
+            UltCooldownLeft = UltCooldown;
+            Skill2CooldownLeft = _skill2Cooldown;
             IsMoving = false;
             IsFleeing = false;
             IsCasting = false;
