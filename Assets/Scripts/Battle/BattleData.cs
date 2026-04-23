@@ -16,6 +16,10 @@ namespace FrameSync
         Witch    = 7, // 巫师（远程，魔法球+攻速buff/debuff）
         Barbarian = 8, // 野蛮人（近战，攻击buff/debuff+吸血）
         LightningMage = 9, // 闪电法师（远程，穿刺闪电+连锁+闪电云）
+        Paladin = 10, // 圣骑士（近战辅助，治疗+复活+抗性光环）
+        ThornWarrior = 11, // 荆棘战士（近战，拉取+反伤+吸收）
+        SkeletonKing = 12, // 骷髅王（近战，召唤骷髅兵+引爆+自我复活）
+        SkeletonMinion = 13, // 小骷髅兵（召唤物，死亡自爆）
     }
 
     /// <summary>职业类型（用于索敌优先级）。</summary>
@@ -60,6 +64,11 @@ namespace FrameSync
         HealApplied,     // 治疗         SourceId=治疗者, TargetId=目标, IntParam=治疗量
         ChainLightningLink, // 连锁闪电链接  SourceId=上一个目标(或施法者), TargetId=下一个目标
         LightningCloudSpawn, // 闪电云生成  SourceId=施法者, PosXRaw/PosYRaw=位置, IntParam=半径(Q16.16编码)
+        FighterRevive,       // 角色复活  SourceId=复活者, TargetId=施法者, IntParam=复活后HP
+        PullStart,           // 拉取开始  SourceId=拉取者, TargetId=被拉者
+        ReflectDamage,       // 反伤      SourceId=反伤者, TargetId=受反伤者, IntParam=反伤伤害
+        SummonExplode,       // 召唤物自爆  SourceId=自爆者, PosXRaw/PosYRaw=位置, IntParam=爆炸半径(Q16.16)
+        SelfRevive,          // 自我复活    SourceId=复活者, IntParam=复活后HP
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -101,6 +110,9 @@ namespace FrameSync
                 BattleEventType.HealApplied      => $"[F{Frame}] P{SourceId}→P{TargetId} 治疗 +{IntParam}",
                 BattleEventType.ChainLightningLink => $"[F{Frame}] 连锁闪电 P{SourceId}→P{TargetId}",
                 BattleEventType.LightningCloudSpawn => $"[F{Frame}] P{SourceId} 闪电云生成",
+                BattleEventType.FighterRevive => $"[F{Frame}] P{SourceId} 复活 HP={IntParam}",
+                BattleEventType.PullStart => $"[F{Frame}] P{SourceId} 拉取 P{TargetId}",
+                BattleEventType.ReflectDamage => $"[F{Frame}] P{SourceId} 反伤 → P{TargetId} {IntParam}dmg",
                 _                             => $"[F{Frame}] {Type}",
             };
         }
@@ -206,6 +218,10 @@ namespace FrameSync
         static CharacterStats _witch;
         static CharacterStats _barbarian;
         static CharacterStats _lightningMage;
+        static CharacterStats _paladin;
+        static CharacterStats _thornWarrior;
+        static CharacterStats _skeletonKing;
+        static CharacterStats _skeletonMinion;
         static SkillConfig[] _skillsArray;
         static FormationPos[] _formation;
         static TargetPriorityEntry[] _targetPriority;
@@ -213,15 +229,10 @@ namespace FrameSync
         static int _teamSize = 1;
         static bool _loaded;
 
+        // ── 角色配置（CharacterConfig.json） ──
         [System.Serializable]
-        class ConfigRoot
+        class CharacterRoot
         {
-            public int ArenaHalf = 10;
-            public int TeamSize = 1;
-            public int InterruptChance = 25;
-            public FormationPos[] Formation;
-            public TargetPriorityEntry[] TargetPriority;
-            public SkillConfig[] Skills;
             public CharacterStats Warrior;
             public CharacterStats Archer;
             public CharacterStats Assassin;
@@ -231,6 +242,28 @@ namespace FrameSync
             public CharacterStats Witch;
             public CharacterStats Barbarian;
             public CharacterStats LightningMage;
+            public CharacterStats Paladin;
+            public CharacterStats ThornWarrior;
+            public CharacterStats SkeletonKing;
+            public CharacterStats SkeletonMinion;
+        }
+
+        // ── 全局战斗设置（BattleSettings.json） ──
+        [System.Serializable]
+        class SettingsRoot
+        {
+            public int ArenaHalf = 10;
+            public int TeamSize = 1;
+            public int InterruptChance = 25;
+            public FormationPos[] Formation;
+            public TargetPriorityEntry[] TargetPriority;
+        }
+
+        // ── 技能配置（SkillConfig.json） ──
+        [System.Serializable]
+        class SkillRoot
+        {
+            public SkillConfig[] Skills;
         }
 
         static int _arenaHalf = 10;
@@ -241,26 +274,24 @@ namespace FrameSync
             if (_loaded) return;
             _loaded = true;
 
-            var asset = UnityEngine.Resources.Load<UnityEngine.TextAsset>("CharacterConfig");
-            if (asset != null)
+            // 1. 加载角色数值
+            var charAsset = UnityEngine.Resources.Load<UnityEngine.TextAsset>("CharacterConfig");
+            if (charAsset != null)
             {
-                var root = UnityEngine.JsonUtility.FromJson<ConfigRoot>(asset.text);
-                _warrior     = root.Warrior;
-                _archer      = root.Archer;
-                _assassin    = root.Assassin;
-                _mage        = root.Mage;
-                _snowman     = root.Snowman;
-                _healer      = root.Healer;
-                _witch       = root.Witch;
-                _barbarian   = root.Barbarian;
-                _lightningMage = root.LightningMage;
-                _skillsArray = root.Skills;
-                _formation   = root.Formation;
-                _teamSize    = root.TeamSize > 0 ? root.TeamSize : 1;
-                _arenaHalf   = root.ArenaHalf > 0 ? root.ArenaHalf : 10;
-                _interruptChance = root.InterruptChance;
-                _targetPriority = root.TargetPriority;
-                BuildPriorityMap();
+                var chars = UnityEngine.JsonUtility.FromJson<CharacterRoot>(charAsset.text);
+                _warrior       = chars.Warrior;
+                _archer        = chars.Archer;
+                _assassin      = chars.Assassin;
+                _mage          = chars.Mage;
+                _snowman       = chars.Snowman;
+                _healer        = chars.Healer;
+                _witch         = chars.Witch;
+                _barbarian     = chars.Barbarian;
+                _lightningMage = chars.LightningMage;
+                _paladin       = chars.Paladin;
+                _thornWarrior  = chars.ThornWarrior;
+                _skeletonKing  = chars.SkeletonKing;
+                _skeletonMinion = chars.SkeletonMinion;
             }
             else
             {
@@ -274,9 +305,42 @@ namespace FrameSync
                 _witch    = new CharacterStats { MaxHp=1100, MoveSpeed=2, TurnSpeed=10, CollisionRadius=0.5f, Profession="Mage", Passive="on_hit_atk_slow", NormalAttack="witch_orb", Skill2="witch_atk_speed_up", Ultimate="witch_mass_slow" };
                 _barbarian = new CharacterStats { MaxHp=1800, MoveSpeed=1, TurnSpeed=8, CollisionRadius=0.5f, Profession="Warrior", Passive="barbarian_lifesteal", NormalAttack="barbarian_atk", Skill2="barbarian_atk_up", Ultimate="barbarian_mass_atk_down" };
                 _lightningMage = new CharacterStats { MaxHp=1000, MoveSpeed=2, TurnSpeed=10, CollisionRadius=0.5f, Profession="Mage", Passive="react_lightning", NormalAttack="lightning_bolt", Skill2="chain_lightning", Ultimate="lightning_storm" };
-                _skillsArray = System.Array.Empty<SkillConfig>();
+                _paladin = new CharacterStats { MaxHp=2000, MoveSpeed=1, TurnSpeed=8, CollisionRadius=0.5f, Profession="Support", Passive="aura_resistance", NormalAttack="paladin_atk", Skill2="paladin_heal", Ultimate="paladin_revive" };
+                _thornWarrior = new CharacterStats { MaxHp=2200, MoveSpeed=1, TurnSpeed=8, CollisionRadius=0.5f, Profession="Warrior", Passive="damage_absorb", NormalAttack="thorn_atk", Skill2="thorn_pull", Ultimate="reflect_shield" };
+                _skeletonKing = new CharacterStats { MaxHp=2000, MoveSpeed=1, TurnSpeed=8, CollisionRadius=0.5f, Profession="Warrior", Passive="self_revive", NormalAttack="skeleton_king_atk", Skill2="summon_skeleton", Ultimate="detonate_summons" };
+                _skeletonMinion = new CharacterStats { MaxHp=400, MoveSpeed=2, TurnSpeed=10, CollisionRadius=0.5f, Profession="Warrior", Passive="death_explode", NormalAttack="skeleton_minion_atk" };
+            }
+
+            // 2. 加载全局战斗设置
+            var settingsAsset = UnityEngine.Resources.Load<UnityEngine.TextAsset>("BattleSettings");
+            if (settingsAsset != null)
+            {
+                var settings = UnityEngine.JsonUtility.FromJson<SettingsRoot>(settingsAsset.text);
+                _teamSize        = settings.TeamSize > 0 ? settings.TeamSize : 1;
+                _arenaHalf       = settings.ArenaHalf > 0 ? settings.ArenaHalf : 10;
+                _interruptChance = settings.InterruptChance;
+                _formation       = settings.Formation;
+                _targetPriority  = settings.TargetPriority;
+                BuildPriorityMap();
+            }
+            else
+            {
+                UnityEngine.Debug.LogError("[CharacterConfig] Resources/BattleSettings.json not found");
                 _formation = new[] { new FormationPos { X = -5, Y = 0 } };
                 _teamSize = 1;
+            }
+
+            // 3. 加载技能配置
+            var skillAsset = UnityEngine.Resources.Load<UnityEngine.TextAsset>("SkillConfig");
+            if (skillAsset != null)
+            {
+                var skills = UnityEngine.JsonUtility.FromJson<SkillRoot>(skillAsset.text);
+                _skillsArray = skills.Skills;
+            }
+            else
+            {
+                UnityEngine.Debug.LogError("[CharacterConfig] Resources/SkillConfig.json not found");
+                _skillsArray = System.Array.Empty<SkillConfig>();
             }
         }
 
@@ -304,6 +368,10 @@ namespace FrameSync
                 CharacterType.Witch    => _witch,
                 CharacterType.Barbarian => _barbarian,
                 CharacterType.LightningMage => _lightningMage,
+                CharacterType.Paladin => _paladin,
+                CharacterType.ThornWarrior => _thornWarrior,
+                CharacterType.SkeletonKing => _skeletonKing,
+                CharacterType.SkeletonMinion => _skeletonMinion,
                 _ => _warrior,
             };
         }
@@ -382,6 +450,15 @@ namespace FrameSync
         public FixedVector2 Position;
         public int Lifetime;
         public int MaxHp;
+    }
+
+    /// <summary>拉取效果（由BattleLogic每帧处理，将目标拉向施法者）。</summary>
+    public struct PullEffect
+    {
+        public byte SourceId;    // 拉取者
+        public byte TargetId;    // 被拉者
+        public int FramesLeft;   // 剩余拉取帧数
+        public FixedInt Speed;   // 拉取速度
     }
 
     // ═══════════════════════════════════════════════════════════════

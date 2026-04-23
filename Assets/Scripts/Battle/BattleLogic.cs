@@ -65,6 +65,7 @@ namespace FrameSync
         readonly List<AoEProjectile> _aoeProjectiles = new();
         readonly List<PiercingProjectile> _piercingProjectiles = new();
         readonly List<LightningCloud> _lightningClouds = new();
+        readonly List<PullEffect> _activePulls = new();
         byte _nextFighterId;
         int _teamSize;
 
@@ -108,6 +109,9 @@ namespace FrameSync
             Debug.Log($"[Battle] 服务器结束游戏 winner={winnerId}");
         }
 
+        /// <summary>外部UI设置的选角输入（优先于键盘）。</summary>
+        [HideInInspector] public int PendingUISelection;
+
         public PlayerInput SampleLocalInput()
         {
             int mx = 0;
@@ -115,26 +119,39 @@ namespace FrameSync
 
             if (Phase == BattlePhase.Selecting)
             {
-                // 多角色选择：每次按键添加一个角色到队伍
-                CharacterType pick = CharacterType.None;
-                if (Input.GetKeyDown(KeyCode.Alpha1) || Input.GetKeyDown(KeyCode.Keypad1))
-                    pick = CharacterType.Warrior;
-                if (Input.GetKeyDown(KeyCode.Alpha2) || Input.GetKeyDown(KeyCode.Keypad2))
-                    pick = CharacterType.Archer;
-                if (Input.GetKeyDown(KeyCode.Alpha3) || Input.GetKeyDown(KeyCode.Keypad3))
-                    pick = CharacterType.Assassin;
-                if (Input.GetKeyDown(KeyCode.Alpha4) || Input.GetKeyDown(KeyCode.Keypad4))
-                    pick = CharacterType.Mage;
-                if (Input.GetKeyDown(KeyCode.Alpha5) || Input.GetKeyDown(KeyCode.Keypad5))
-                    pick = CharacterType.Healer;
-                if (Input.GetKeyDown(KeyCode.Alpha6) || Input.GetKeyDown(KeyCode.Keypad6))
-                    pick = CharacterType.Witch;
-                if (Input.GetKeyDown(KeyCode.Alpha7) || Input.GetKeyDown(KeyCode.Keypad7))
-                    pick = CharacterType.Barbarian;
-                if (Input.GetKeyDown(KeyCode.Alpha8) || Input.GetKeyDown(KeyCode.Keypad8))
-                    pick = CharacterType.LightningMage;
-                if (pick != CharacterType.None)
-                    mx = (int)pick;
+                // 优先使用UI输入
+                if (PendingUISelection != 0)
+                {
+                    mx = PendingUISelection;
+                    PendingUISelection = 0;
+                }
+                else
+                {
+                    // 多角色选择：每次按键添加一个角色到队伍
+                    CharacterType pick = CharacterType.None;
+                    if (Input.GetKeyDown(KeyCode.Alpha1) || Input.GetKeyDown(KeyCode.Keypad1))
+                        pick = CharacterType.Warrior;
+                    if (Input.GetKeyDown(KeyCode.Alpha2) || Input.GetKeyDown(KeyCode.Keypad2))
+                        pick = CharacterType.Archer;
+                    if (Input.GetKeyDown(KeyCode.Alpha3) || Input.GetKeyDown(KeyCode.Keypad3))
+                        pick = CharacterType.Assassin;
+                    if (Input.GetKeyDown(KeyCode.Alpha4) || Input.GetKeyDown(KeyCode.Keypad4))
+                        pick = CharacterType.Mage;
+                    if (Input.GetKeyDown(KeyCode.Alpha5) || Input.GetKeyDown(KeyCode.Keypad5))
+                        pick = CharacterType.Healer;
+                    if (Input.GetKeyDown(KeyCode.Alpha6) || Input.GetKeyDown(KeyCode.Keypad6))
+                        pick = CharacterType.Witch;
+                    if (Input.GetKeyDown(KeyCode.Alpha7) || Input.GetKeyDown(KeyCode.Keypad7))
+                        pick = CharacterType.Barbarian;
+                    if (Input.GetKeyDown(KeyCode.Alpha8) || Input.GetKeyDown(KeyCode.Keypad8))
+                        pick = CharacterType.LightningMage;
+                    if (Input.GetKeyDown(KeyCode.Alpha9) || Input.GetKeyDown(KeyCode.Keypad9))
+                        pick = CharacterType.Paladin;
+                    if (Input.GetKeyDown(KeyCode.Alpha0) || Input.GetKeyDown(KeyCode.Keypad0))
+                        pick = CharacterType.ThornWarrior;
+                    if (pick != CharacterType.None)
+                        mx = (int)pick;
+                }
             }
             else if (Phase == BattlePhase.Fighting)
             {
@@ -158,7 +175,7 @@ namespace FrameSync
                 if (_selections[pid].Count >= _teamSize) continue;
 
                 if (input.MoveX >= (int)CharacterType.Warrior &&
-                    input.MoveX <= (int)CharacterType.LightningMage)
+                    input.MoveX <= (int)CharacterType.SkeletonKing)
                 {
                     var charType = (CharacterType)input.MoveX;
                     _selections[pid].Add(charType);
@@ -269,6 +286,24 @@ namespace FrameSync
                 }
             }
 
+            // 1b. 光环被动：每帧重算所有人的 BonusResistance
+            for (int i = 0; i < _fighters.Count; i++)
+                _fighters[i].BonusResistance = FixedInt.Zero;
+            for (int i = 0; i < _fighters.Count; i++)
+            {
+                var aura = _fighters[i];
+                if (aura.IsDead || !aura.HasAuraResistance) continue;
+                var rangeSq = aura.AuraRange * aura.AuraRange;
+                for (int j = 0; j < _fighters.Count; j++)
+                {
+                    var ally = _fighters[j];
+                    if (ally.TeamId != aura.TeamId || ally.IsDead) continue;
+                    var distSq = FixedVector2.SqrDistance(aura.Position, ally.Position);
+                    if (distSq <= rangeSq)
+                        ally.BonusResistance += aura.AuraResBonus;
+                }
+            }
+
             // 2. 驱动所有角色行为树
             for (int i = 0; i < _fighters.Count; i++)
                 _fighters[i].Tick(frame.FrameId, TickInterval);
@@ -323,6 +358,11 @@ namespace FrameSync
                     }
                     _fighters[i].PendingLightningClouds.Clear();
                 }
+                if (_fighters[i].PendingPulls.Count > 0)
+                {
+                    _activePulls.AddRange(_fighters[i].PendingPulls);
+                    _fighters[i].PendingPulls.Clear();
+                }
             }
 
             // 2.6 驱动弹射物飞行
@@ -353,6 +393,40 @@ namespace FrameSync
                     _lightningClouds.RemoveAt(p);
             }
 
+            // 2.6e 驱动拉取效果
+            for (int p = _activePulls.Count - 1; p >= 0; p--)
+            {
+                var pull = _activePulls[p];
+                pull.FramesLeft--;
+
+                var source = GetFighter(pull.SourceId);
+                var target = GetFighter(pull.TargetId);
+
+                if (source == null || target == null || source.IsDead || target.IsDead || pull.FramesLeft <= 0)
+                {
+                    _activePulls.RemoveAt(p);
+                    continue;
+                }
+
+                // 每帧将目标拉向施法者
+                var toSource = source.Position - target.Position;
+                var dist = toSource.Magnitude;
+                if (dist > source.Radius + target.Radius)
+                {
+                    var step = toSource.Normalized * pull.Speed * TickInterval;
+                    if (step.Magnitude >= dist)
+                        target.Position = source.Position - toSource.Normalized * (source.Radius + target.Radius);
+                    else
+                        target.Position = target.Position + step;
+                    target.ClampToArena();
+                }
+
+                // 保持硬直状态
+                target.IsStaggered = true;
+
+                _activePulls[p] = pull;
+            }
+
             // 2.7 碰撞分离
             BattleFighter.ResolveCollisions(_fighters);
 
@@ -380,13 +454,84 @@ namespace FrameSync
                 }
             }
 
-            // 3. 胜负判定：一方所有非召唤物角色阵亡
+            // 2.9 死亡爆炸处理：拥有DeathExplode被动的角色死亡时对附近敌人造成AoE伤害
+            for (int i = 0; i < _fighters.Count; i++)
+            {
+                var f = _fighters[i];
+                if (!f.IsDead || !f.HasDeathExplode || f.DeathExplodeProcessed) continue;
+                f.DeathExplodeProcessed = true;
+
+                var radius = f.DeathExplodeRadius;
+                var radiusSq = radius * radius;
+                var damage = FixedInt.FromInt(f.DeathExplodeDamage);
+
+                for (int j = 0; j < _fighters.Count; j++)
+                {
+                    var target = _fighters[j];
+                    if (target.IsDead || target.TeamId == f.TeamId) continue;
+                    var distSq = FixedVector2.SqrDistance(f.Position, target.Position);
+                    if (distSq <= radiusSq)
+                    {
+                        var finalDmg = target.ApplyResistance(damage);
+                        target.Hp = target.Hp - finalDmg;
+                        if (target.Hp < FixedInt.Zero) target.Hp = FixedInt.Zero;
+
+                        EventQueue.Add(new BattleEvent
+                        {
+                            Frame    = frame.FrameId,
+                            Type     = BattleEventType.Damage,
+                            SourceId = f.PlayerId,
+                            TargetId = target.PlayerId,
+                            IntParam = finalDmg.ToInt(),
+                        });
+                        EventQueue.Add(new BattleEvent
+                        {
+                            Frame    = frame.FrameId,
+                            Type     = BattleEventType.HpChanged,
+                            SourceId = target.PlayerId,
+                            IntParam = target.Hp.ToInt(),
+                        });
+
+                        if (target.IsDead)
+                        {
+                            EventQueue.Add(new BattleEvent { Frame = frame.FrameId, Type = BattleEventType.Death, SourceId = target.PlayerId });
+                            target.TryStartSelfRevive();
+                        }
+                    }
+                }
+
+                EventQueue.Add(new BattleEvent
+                {
+                    Frame    = frame.FrameId,
+                    Type     = BattleEventType.SummonExplode,
+                    SourceId = f.PlayerId,
+                    PosXRaw  = f.Position.X.Raw,
+                    PosYRaw  = f.Position.Y.Raw,
+                    IntParam = radius.ToInt(),
+                });
+            }
+
+            // 2.10 自我复活倒计时
+            for (int i = 0; i < _fighters.Count; i++)
+            {
+                var f = _fighters[i];
+                if (!f.IsDead || !f.PendingSelfRevive) continue;
+                f.SelfReviveFramesLeft--;
+                if (f.SelfReviveFramesLeft <= 0)
+                {
+                    f.ExecuteSelfRevive(frame.FrameId);
+                    Debug.Log($"[Battle] #{f.PlayerId} {f.CharType} 自我复活！HP={f.MaxHp.ToInt()}");
+                }
+            }
+
+            // 3. 胜负判定：一方所有非召唤物角色阵亡（待复活的不算阵亡）
             bool team1Dead = true, team2Dead = true;
             for (int i = 0; i < _fighters.Count; i++)
             {
                 if (_fighters[i].IsSummon) continue; // 召唤物不计入胜负
-                if (_fighters[i].TeamId == 1 && !_fighters[i].IsDead) team1Dead = false;
-                if (_fighters[i].TeamId == 2 && !_fighters[i].IsDead) team2Dead = false;
+                bool alive = !_fighters[i].IsDead || _fighters[i].PendingSelfRevive;
+                if (_fighters[i].TeamId == 1 && alive) team1Dead = false;
+                if (_fighters[i].TeamId == 2 && alive) team2Dead = false;
             }
 
             if (team1Dead || team2Dead)

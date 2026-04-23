@@ -70,10 +70,15 @@ namespace FrameSync
 
         // ── 被动技能 ────────────────────────────────────────
 
-        string _passiveType;          // 被动技能类型（FleeOnHit/CritStrike/DodgeBlock/UltCDReduce/Lifesteal/OnHitDebuff）
+        string _passiveType;          // 被动技能类型（FleeOnHit/CritStrike/DodgeBlock/UltCDReduce/Lifesteal/OnHitDebuff/AuraResistance）
         FixedInt _passiveParam1;      // 被动参数1
         int _passiveParam2;           // 被动参数2（整数，概率/倍率/帧数等）
         BuffTemplate[] _passiveBuffs; // OnHitDebuff被动附加的buff列表
+
+        // ── 光环被动（AuraResistance）──
+        public bool HasAuraResistance => _passiveType == "AuraResistance";
+        public FixedInt AuraResBonus => _passiveParam1;  // 光环加成的抗性值
+        public FixedInt AuraRange => _passiveParam2 > 0 ? FixedInt.FromInt(_passiveParam2) : FixedInt.FromInt(5);
         int _prevAtkCD;
         int _prevUltCD;
         bool _cdTotalsEmitted;
@@ -125,6 +130,7 @@ namespace FrameSync
         int _stealthFramesLeft;
         int _staggerDuration;     // 本角色僵直帧数（配置值）
         FixedInt _resistance;     // 抗性（百分比减伤，50=受50%伤害）
+        public FixedInt BonusResistance; // 光环加成的额外抗性
         int _staggerFramesLeft;   // 当前僵直剩余帧数
 
         /// <summary>本帧新生成的弹射物（由 BattleLogic 取走并管理）。</summary>
@@ -142,6 +148,14 @@ namespace FrameSync
         /// <summary>本帧请求创建的闪电云（由 BattleLogic 取走并创建）。</summary>
         public readonly List<LightningCloudRequest> PendingLightningClouds = new();
 
+        /// <summary>本帧请求创建的拉取效果（由 BattleLogic 取走并处理）。</summary>
+        public readonly List<PullEffect> PendingPulls = new();
+
+        // ── 反伤护盾（ReflectShield大招）────────────────────────
+        public int _reflectFramesLeft;      // 反伤剩余帧数
+        FixedInt _reflectPercent;           // 反伤百分比
+        bool _isReflecting;                 // 防止反伤递归
+
         // ── Buff系统 ──────────────────────────────────────────
         readonly List<Buff> _buffs = new();
         public bool IsSlowed;
@@ -150,6 +164,18 @@ namespace FrameSync
         public BattleFighter Master;    // 非null表示这是召唤物
         public int LifetimeLeft;         // 召唤物剩余存活帧数（0=无限制）
         public bool IsSummon => Master != null;
+
+        // ── 自我复活（SelfRevive被动）────────────────────────
+        public int SelfReviveFramesLeft;   // >0表示正在等待复活的倒计时
+        int _selfReviveDelay;              // 复活延迟帧数（从配置加载）
+        int _selfRevivesLeft;              // 剩余可复活次数
+        public bool PendingSelfRevive => SelfReviveFramesLeft > 0;
+
+        // ── 死亡爆炸（DeathExplode被动）────────────────────────
+        public bool HasDeathExplode => _passiveType == "DeathExplode";
+        public FixedInt DeathExplodeRadius => _passiveParam1;
+        public int DeathExplodeDamage => _passiveParam2;
+        public bool DeathExplodeProcessed;
 
         // ── 碰撞规避缓冲区（复用避免GC）────────────────────────
         static readonly FixedCircle[] _obstacleBuffer = new FixedCircle[64];
@@ -203,6 +229,11 @@ namespace FrameSync
                 _passiveParam2   = passive.Param2;
                 _fleeDistance     = _passiveType == "FleeOnHit" ? _passiveParam1 : FixedInt.Zero;
                 _passiveBuffs    = BuffTemplate.FromConfigs(passive.Buffs);
+                if (_passiveType == "SelfRevive")
+                {
+                    _selfReviveDelay = passive.Param1;
+                    _selfRevivesLeft = passive.Param2;
+                }
             }
 
             // ── 普攻技能 ──
@@ -378,6 +409,52 @@ namespace FrameSync
             return best;
         }
 
+        /// <summary>统计当前存活的由自己召唤的召唤物数量。</summary>
+        int CountAliveSummons()
+        {
+            int count = 0;
+            for (int i = 0; i < _allFighters.Count; i++)
+            {
+                var f = _allFighters[i];
+                if (f.Master == this && !f.IsDead) count++;
+            }
+            return count;
+        }
+
+        /// <summary>寻找一个阵亡的非召唤物友方（用于复活）。</summary>
+        BattleFighter FindDeadAlly()
+        {
+            for (int i = 0; i < _allFighters.Count; i++)
+            {
+                var f = _allFighters[i];
+                if (f.TeamId != TeamId || !f.IsDead || f.IsSummon) continue;
+                if (f.PlayerId == PlayerId) continue; // 不能复活自己
+                return f;
+            }
+            return null;
+        }
+
+        /// <summary>寻找拉取目标：范围内距离最远的敌人。</summary>
+        BattleFighter FindPullTarget()
+        {
+            var pullRange = _skill2Param1;
+            BattleFighter farthest = null;
+            FixedInt farthestDist = FixedInt.Zero;
+
+            for (int i = 0; i < _allFighters.Count; i++)
+            {
+                var f = _allFighters[i];
+                if (f.TeamId == TeamId || f.IsDead || f.IsStealthed) continue;
+                var dist = FixedVector2.Distance(Position, f.Position);
+                if (dist <= pullRange && dist > farthestDist)
+                {
+                    farthest = f;
+                    farthestDist = dist;
+                }
+            }
+            return farthest;
+        }
+
         /// <summary>对目标施加治疗（不超过最大血量）。</summary>
         void ApplyHeal(BattleFighter target, FixedInt healAmount, int frame)
         {
@@ -430,6 +507,10 @@ namespace FrameSync
                     IsStealthed = false;
             }
 
+            // 反伤护盾计时
+            if (_reflectFramesLeft > 0)
+                _reflectFramesLeft--;
+
             // 僵直计时
             if (_staggerFramesLeft > 0)
             {
@@ -439,7 +520,11 @@ namespace FrameSync
             }
 
             // ── 大招立即打断：玩家按键 + CD好 → 无视一切状态直接施放 ──
-            if (UltRequested && UltCooldownLeft <= 0 && _ultType != null)
+            // Revive类型大招需要有阵亡友方才能施放
+            bool ultCanCast = UltRequested && UltCooldownLeft <= 0 && _ultType != null;
+            if (ultCanCast && _ultType == "Revive" && FindDeadAlly() == null)
+                ultCanCast = false;
+            if (ultCanCast)
             {
                 // 打断所有状态
                 IsCasting = false;
@@ -642,8 +727,10 @@ namespace FrameSync
             if (Skill2CooldownLeft > 0) return false;
             if (_skill2Type == null) return false;
             if (_skill2IsReactive) return false;
+            if (_skill2Type == "SummonPersistent") return CountAliveSummons() < _skill2Param1.ToInt();
             if (_skill2TargetAlly) return FindHealTarget() != null;
             if (_skill2IsGapCloser) return EffectiveEnemyDist() > AtkRange;
+            if (_skill2Type == "Pull") return FindPullTarget() != null;
             return !IsMoving && EffectiveEnemyDist() <= AtkRange
                 && _target != null && IsFacingTarget(_target.Position);
         }
@@ -776,6 +863,91 @@ namespace FrameSync
                             TargetId = nearest.PlayerId,
                         });
                         current = nearest;
+                    }
+                    break;
+                }
+                case "HealPercent":
+                {
+                    // 按目标最大HP的百分比治疗（Param1=百分比，如30=30%）
+                    var t = FindHealTarget();
+                    if (t != null)
+                    {
+                        var healAmt = t.MaxHp * _skill2Param1 / FixedInt.FromInt(100);
+                        ApplyHeal(t, healAmt, frame);
+                    }
+                    break;
+                }
+                case "Pull":
+                {
+                    // 拉取技能：优先拉取范围内距离最远的敌人
+                    var pullRange = _skill2Param1; // Param1=拉取范围
+                    int pullDuration = _skill2Param2.ToInt(); // Param2=拉取持续帧数
+                    if (pullDuration < 1) pullDuration = 10;
+
+                    BattleFighter farthest = null;
+                    FixedInt farthestDist = FixedInt.Zero;
+
+                    for (int e = 0; e < _allFighters.Count; e++)
+                    {
+                        var f = _allFighters[e];
+                        if (f.TeamId == TeamId || f.IsDead || f.IsStealthed) continue;
+                        var dist = FixedVector2.Distance(Position, f.Position);
+                        if (dist <= pullRange && dist > farthestDist)
+                        {
+                            farthest = f;
+                            farthestDist = dist;
+                        }
+                    }
+
+                    if (farthest != null)
+                    {
+                        // 打断被拉目标的所有动作
+                        farthest.IsCasting = false;
+                        farthest.IsMoving  = false;
+                        farthest.IsFleeing = false;
+                        farthest.IsStaggered = true;
+                        farthest._staggerFramesLeft = pullDuration + _staggerDuration;
+
+                        // 创建拉取效果
+                        var pullSpeed = farthestDist / FixedInt.FromInt(pullDuration) * FixedInt.FromInt(15); // 距离/时间
+                        PendingPulls.Add(new PullEffect
+                        {
+                            SourceId   = PlayerId,
+                            TargetId   = farthest.PlayerId,
+                            FramesLeft = pullDuration,
+                            Speed      = pullSpeed,
+                        });
+
+                        // 拉取开始事件
+                        _events.Add(new BattleEvent
+                        {
+                            Frame    = frame,
+                            Type     = BattleEventType.PullStart,
+                            SourceId = PlayerId,
+                            TargetId = farthest.PlayerId,
+                        });
+
+                        // 拉取造成伤害
+                        if (_skill2Damage > FixedInt.Zero)
+                            ApplyDamage(farthest, _skill2Damage, frame);
+                    }
+                    break;
+                }
+                case "SummonPersistent":
+                {
+                    // 召唤永久召唤物，不超过上限
+                    int maxCount = _skill2Param1.ToInt();
+                    if (CountAliveSummons() < maxCount)
+                    {
+                        var offset = Facing * FixedInt.FromInt(2);
+                        var summonPos = Position - offset;
+                        PendingSummons.Add(new SummonRequest
+                        {
+                            Type     = CharacterType.SkeletonMinion,
+                            Position = summonPos,
+                            Lifetime = 0, // 无时间限制
+                            MaxHp    = _skill2Param2.ToInt(),
+                        });
                     }
                     break;
                 }
@@ -1073,6 +1245,97 @@ namespace FrameSync
                     });
                     break;
                 }
+                case "Revive":
+                {
+                    // 复活一名阵亡的非召唤物友方
+                    var dead = FindDeadAlly();
+                    if (dead != null)
+                    {
+                        // 复活：设置HP为最大HP的Param1%
+                        var reviveHp = dead.MaxHp * _ultParam1 / FixedInt.FromInt(100);
+                        if (reviveHp < FixedInt.OneVal) reviveHp = FixedInt.OneVal;
+                        dead.Hp = reviveHp;
+
+                        // 所有技能CD设为刚开始冷却状态
+                        dead.AtkCooldownLeft = dead.AtkCooldown;
+                        dead.Skill2CooldownLeft = dead._skill2Cooldown;
+                        dead.UltCooldownLeft = dead.UltCooldown;
+
+                        // 清除异常状态
+                        dead.IsStunned = false;
+                        dead.IsStaggered = false;
+                        dead.IsFleeing = false;
+                        dead.IsMoving = false;
+                        dead.IsCasting = false;
+                        dead.IsStealthed = false;
+                        dead._staggerFramesLeft = 0;
+                        dead._stealthFramesLeft = 0;
+
+                        // 复活位置在施法者旁边
+                        dead.Position = Position + Facing * FixedInt.FromInt(2);
+                        dead.ClampToArena();
+                        dead.Facing = Facing;
+
+                        // 复活事件
+                        _events.Add(new BattleEvent
+                        {
+                            Frame    = frame,
+                            Type     = BattleEventType.FighterRevive,
+                            SourceId = dead.PlayerId,
+                            TargetId = PlayerId,
+                            IntParam = dead.Hp.ToInt(),
+                            PosXRaw  = dead.Position.X.Raw,
+                            PosYRaw  = dead.Position.Y.Raw,
+                        });
+
+                        // HP变化事件
+                        _events.Add(new BattleEvent
+                        {
+                            Frame    = frame,
+                            Type     = BattleEventType.HpChanged,
+                            SourceId = dead.PlayerId,
+                            IntParam = dead.Hp.ToInt(),
+                        });
+                    }
+                    break;
+                }
+                case "ReflectShield":
+                {
+                    // 开启反伤护盾，持续Param1帧，反弹Param2%伤害
+                    _reflectFramesLeft = _ultParam1.ToInt();
+                    _reflectPercent = FixedInt.FromInt(_ultParam2) / FixedInt.FromInt(100);
+                    break;
+                }
+                case "DetonateSummons":
+                {
+                    // 引爆所有己方召唤物（设HP=0触发死亡爆炸），然后召唤满额新的
+                    for (int i = 0; i < _allFighters.Count; i++)
+                    {
+                        var f = _allFighters[i];
+                        if (f.Master == this && !f.IsDead)
+                        {
+                            f.Hp = FixedInt.Zero;
+                            _events.Add(new BattleEvent { Frame = frame, Type = BattleEventType.Death, SourceId = f.PlayerId });
+                        }
+                    }
+                    // 召唤3个新骷髅兵
+                    int maxCount = 3;
+                    int summonHp = _ultParam1.ToInt();
+                    for (int s = 0; s < maxCount; s++)
+                    {
+                        // 扇形分布在身后
+                        var offsetAngle = (s - 1); // -1, 0, 1
+                        var offset = Facing * FixedInt.FromInt(-2) + new FixedVector2(FixedInt.FromInt(offsetAngle), FixedInt.Zero);
+                        PendingSummons.Add(new SummonRequest
+                        {
+                            Type     = CharacterType.SkeletonMinion,
+                            Position = Position + offset,
+                            Lifetime = 0,
+                            MaxHp    = summonHp,
+                        });
+                    }
+                    break;
+                }
             }
 
             // 大招释放事件
@@ -1087,8 +1350,8 @@ namespace FrameSync
                 PosYRaw  = Position.Y.Raw,
             });
 
-            // Stealth/SummonPet/AoEZone 不走统一伤害路径
-            if (_ultType == "Stealth" || _ultType == "SummonPet" || _ultType == "AoEZone") return;
+            // Stealth/SummonPet/AoEZone/Revive/ReflectShield 不走统一伤害路径
+            if (_ultType == "Stealth" || _ultType == "SummonPet" || _ultType == "AoEZone" || _ultType == "Revive" || _ultType == "ReflectShield" || _ultType == "DetonateSummons") return;
 
             // ── 统一效果施加：根据 TargetTeam/TargetScope 选择目标，Damage正负决定伤害/治疗 ──
             var targets = SelectTargets(_ultTargetAlly, _ultTargetAll, false, _ultTargetRandomCount);
@@ -1120,6 +1383,43 @@ namespace FrameSync
                 if (damage < FixedInt.OneVal) damage = FixedInt.OneVal; // 至少1点伤害
             }
 
+            // ── 被动：伤害吸收 — 极小概率把伤害转为治疗 ──
+            if (target._passiveType == "DamageAbsorb" && target._bt != null
+                && target._passiveParam1.ToInt() > 0 && damage > FixedInt.Zero)
+            {
+                int roll = target._bt.Context.Random.Next(100);
+                if (roll < target._passiveParam1.ToInt())
+                {
+                    // 伤害转为治疗
+                    target.Hp = target.Hp + damage;
+                    if (target.Hp > target.MaxHp) target.Hp = target.MaxHp;
+
+                    _events.Add(new BattleEvent
+                    {
+                        Frame    = frame,
+                        Type     = BattleEventType.HealApplied,
+                        SourceId = target.PlayerId,
+                        TargetId = target.PlayerId,
+                        IntParam = damage.ToInt(),
+                    });
+                    _events.Add(new BattleEvent
+                    {
+                        Frame    = frame,
+                        Type     = BattleEventType.HpChanged,
+                        SourceId = target.PlayerId,
+                        IntParam = target.Hp.ToInt(),
+                    });
+
+                    // 伤害吸收后不扣血，仍触发反应和被动
+                    if (!target.IsDead)
+                    {
+                        target.TryReactSkill2(Position, PlayerId, frame, _events);
+                        target.TryPassive(Position, PlayerId, frame, _events);
+                    }
+                    return;
+                }
+            }
+
             target.Hp = target.Hp - damage;
             if (target.Hp < FixedInt.Zero)
                 target.Hp = FixedInt.Zero;
@@ -1144,6 +1444,49 @@ namespace FrameSync
             // ── 攻击者被动：造成伤害后触发 ──
             OnDealDamage(damage, target, frame, _events);
 
+            // ── 反伤护盾：将受到伤害的一部分反弹给攻击者 ──
+            if (target._reflectFramesLeft > 0 && !IsDead && !_isReflecting)
+            {
+                var reflectDmg = damage * target._reflectPercent;
+                if (reflectDmg >= FixedInt.OneVal)
+                {
+                    _isReflecting = true;
+                    reflectDmg = ApplyResistance(reflectDmg); // 攻击者自身抗性减伤
+                    Hp = Hp - reflectDmg;
+                    if (Hp < FixedInt.Zero) Hp = FixedInt.Zero;
+
+                    _events.Add(new BattleEvent
+                    {
+                        Frame    = frame,
+                        Type     = BattleEventType.ReflectDamage,
+                        SourceId = target.PlayerId,
+                        TargetId = PlayerId,
+                        IntParam = reflectDmg.ToInt(),
+                    });
+                    _events.Add(new BattleEvent
+                    {
+                        Frame    = frame,
+                        Type     = BattleEventType.Damage,
+                        SourceId = target.PlayerId,
+                        TargetId = PlayerId,
+                        IntParam = reflectDmg.ToInt(),
+                    });
+                    _events.Add(new BattleEvent
+                    {
+                        Frame    = frame,
+                        Type     = BattleEventType.HpChanged,
+                        SourceId = PlayerId,
+                        IntParam = Hp.ToInt(),
+                    });
+                    if (IsDead)
+                    {
+                        _events.Add(new BattleEvent { Frame = frame, Type = BattleEventType.Death, SourceId = PlayerId });
+                        TryStartSelfRevive();
+                    }
+                    _isReflecting = false;
+                }
+            }
+
             // ── 打断判定：普攻前摇或移动中被伤害可能触发僵直 ──
             if (!target.IsDead)
                 target.TryInterrupt();
@@ -1164,7 +1507,33 @@ namespace FrameSync
                     Type     = BattleEventType.Death,
                     SourceId = target.PlayerId,
                 });
+                target.TryStartSelfRevive();
             }
+        }
+
+        /// <summary>反伤护盾触发：如果本角色有反伤护盾，将部分伤害反弹给攻击者。供外部弹射物调用。</summary>
+        public void TryReflectDamage(BattleFighter attacker, FixedInt damage, int frame, List<BattleEvent> events)
+        {
+            if (_reflectFramesLeft <= 0 || attacker == null || attacker.IsDead || _isReflecting) return;
+            var reflectDmg = damage * _reflectPercent;
+            if (reflectDmg < FixedInt.OneVal) return;
+
+            _isReflecting = true;
+            // 直接扣除攻击者HP（不递归调用完整ApplyDamage避免复杂循环）
+            reflectDmg = attacker.ApplyResistance(reflectDmg);
+            attacker.Hp = attacker.Hp - reflectDmg;
+            if (attacker.Hp < FixedInt.Zero) attacker.Hp = FixedInt.Zero;
+
+            events.Add(new BattleEvent { Frame = frame, Type = BattleEventType.ReflectDamage, SourceId = PlayerId, TargetId = attacker.PlayerId, IntParam = reflectDmg.ToInt() });
+            events.Add(new BattleEvent { Frame = frame, Type = BattleEventType.Damage, SourceId = PlayerId, TargetId = attacker.PlayerId, IntParam = reflectDmg.ToInt() });
+            events.Add(new BattleEvent { Frame = frame, Type = BattleEventType.HpChanged, SourceId = attacker.PlayerId, IntParam = attacker.Hp.ToInt() });
+
+            if (attacker.IsDead)
+            {
+                events.Add(new BattleEvent { Frame = frame, Type = BattleEventType.Death, SourceId = attacker.PlayerId });
+                attacker.TryStartSelfRevive();
+            }
+            _isReflecting = false;
         }
 
         // ═══════════════════════════════════════════════════════
@@ -1272,8 +1641,9 @@ namespace FrameSync
         public FixedInt ApplyResistance(FixedInt damage)
         {
             if (damage <= FixedInt.Zero) return damage; // 治疗不受抗性影响
-            if (_resistance >= FixedInt.FromInt(100)) return FixedInt.Zero; // 完全免疫
-            var multiplier = FixedInt.FromInt(100) - _resistance; // (100 - resistance)
+            var totalRes = _resistance + BonusResistance;
+            if (totalRes >= FixedInt.FromInt(100)) return FixedInt.Zero; // 完全免疫
+            var multiplier = FixedInt.FromInt(100) - totalRes; // (100 - resistance)
             damage = damage * multiplier / FixedInt.FromInt(100);
             if (damage < FixedInt.OneVal) damage = FixedInt.OneVal; // 至少1点伤害
             return damage;
@@ -1714,6 +2084,52 @@ namespace FrameSync
             var steerVel = desiredVel + avoidForce;
             var steerMag = steerVel.Magnitude;
             return steerMag > FixedInt.Zero ? steerVel / steerMag : desiredDir;
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  自我复活（SelfRevive 被动）
+        // ═══════════════════════════════════════════════════════════════
+
+        /// <summary>角色死亡时调用，如果有SelfRevive被动且次数未用完，开始倒计时。返回true表示已开始。</summary>
+        public bool TryStartSelfRevive()
+        {
+            if (_passiveType != "SelfRevive") return false;
+            if (_selfRevivesLeft <= 0) return false;
+            _selfRevivesLeft--;
+            SelfReviveFramesLeft = _selfReviveDelay;
+            return true;
+        }
+
+        /// <summary>由BattleLogic调用：执行自我复活，满血，所有技能进入冷却。</summary>
+        public void ExecuteSelfRevive(int frame)
+        {
+            Hp = MaxHp;
+            SelfReviveFramesLeft = 0;
+
+            // 所有技能进入完整冷却
+            AtkCooldownLeft = AtkCooldown;
+            Skill2CooldownLeft = _skill2Cooldown;
+            UltCooldownLeft = UltCooldown;
+
+            // 清除状态
+            IsStaggered = false;
+            _staggerFramesLeft = 0;
+            IsStunned = false;
+            IsFleeing = false;
+            IsMoving = false;
+            IsCasting = false;
+            IsStealthed = false;
+            _stealthFramesLeft = 0;
+            _reflectFramesLeft = 0;
+            _reflectPercent = FixedInt.Zero;
+
+            _events.Add(new BattleEvent
+            {
+                Frame    = frame,
+                Type     = BattleEventType.SelfRevive,
+                SourceId = PlayerId,
+                IntParam = MaxHp.ToInt(),
+            });
         }
 
         /// <summary>碰撞分离：推开所有重叠的角色对。</summary>

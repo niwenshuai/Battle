@@ -1,0 +1,27 @@
+{
+  "_说明": "全局战斗设置 — 场地、队伍、阵型、索敌优先级。帧数单位基于15Hz（1秒=15帧）。",
+
+  "ArenaHalf": 10,
+  "TeamSize": 2,
+  "_TeamSize说明": "每方角色数量，双方各选TeamSize个角色",
+
+  "InterruptChance": 25,
+  "_InterruptChance说明": "打断触发概率（百分比），普攻前摇或移动中受伤时的打断几率",
+
+  "Formation": [
+    {"X": -8, "Y": 0},
+    {"X": -8, "Y": -2}
+  ],
+  "_Formation说明": "P1方初始布阵位置（左侧），P2方自动镜像到右侧（X取反）",
+
+  "TargetPriority": [
+    {"Profession": "Warrior",  "_职业": "战士", "Priority": [], "_优先级": "无优先级（选最近）"},
+    {"Profession": "Mage",     "_职业": "法师", "Priority": [], "_优先级": "无优先级（选最近）"},
+    {"Profession": "Archer",   "_职业": "射手", "Priority": [], "_优先级": "无优先级（选最近）"},
+    {"Profession": "Assassin", "_职业": "刺客", "Priority": ["Archer", "Mage", "Support", "Assassin", "Warrior"], "_优先级": "射手>法师>辅助>刺客>战士"},
+    {"Profession": "Support",  "_职业": "辅助", "Priority": [], "_优先级": "无优先级（选最近）"}
+  ],
+  "_TargetPriority说明": "每个职业的索敌优先级列表（从高到低），优先攻击列表中靠前的职业",
+
+  "_Resistance说明": "抗性属性（默认50）。减伤百分比：>=100完全免疫，50=受50%伤害，0=全额伤害，-100=受200%伤害。公式：实际伤害 = 原始伤害 × (100-抗性)/100，至少1点。治疗不受抗性影响。"
+}

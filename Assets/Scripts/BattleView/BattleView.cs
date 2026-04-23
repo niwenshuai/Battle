@@ -198,6 +198,9 @@ public class BattleView : MonoBehaviour
     [HideInInspector] public string ConnectionInfo = "";
     [HideInInspector] public int CurrentFrame;
 
+    /// <summary>是否使用外部选角UI（设为true时跳过IMGUI选角界面）。</summary>
+    [HideInInspector] public bool UseExternalSelectUI;
+
     // ════════════════════════════════════════════════════════════
     //  每帧更新
     // ════════════════════════════════════════════════════════════
@@ -464,6 +467,21 @@ public class BattleView : MonoBehaviour
             case BattleEventType.LightningCloudSpawn:
                 OnLightningCloudSpawn(evt);
                 break;
+            case BattleEventType.FighterRevive:
+                OnFighterRevive(evt);
+                break;
+            case BattleEventType.PullStart:
+                OnPullStart(evt);
+                break;
+            case BattleEventType.ReflectDamage:
+                OnReflectDamage(evt);
+                break;
+            case BattleEventType.SummonExplode:
+                OnSummonExplode(evt);
+                break;
+            case BattleEventType.SelfRevive:
+                OnSelfRevive(evt);
+                break;
         }
     }
 
@@ -512,13 +530,17 @@ public class BattleView : MonoBehaviour
         // 角色基础颜色
         vf.BaseColor = vf.CharType switch
         {
-            1 => new Color(0.85f, 0.2f, 0.2f),   // 红=剑士
-            2 => new Color(0.2f, 0.6f, 0.95f),    // 蓝=弓手
-            3 => new Color(0.6f, 0.2f, 0.85f),    // 紫=刺客
-            4 => new Color(0.95f, 0.5f, 0.1f),    // 橙=法师
-            5 => new Color(0.7f, 0.9f, 1.0f),     // 浅蓝=雪人
-            6 => new Color(0.3f, 0.9f, 0.4f),     // 绿=医疗师
-            9 => new Color(0.4f, 0.6f, 1.0f),     // 亮蓝=闪电法师
+            // 1 => new Color(0.85f, 0.2f, 0.2f),   // 红=剑士
+            // 2 => new Color(0.2f, 0.6f, 0.95f),    // 蓝=弓手
+            // 3 => new Color(0.6f, 0.2f, 0.85f),    // 紫=刺客
+            // 4 => new Color(0.95f, 0.5f, 0.1f),    // 橙=法师
+            // 5 => new Color(0.7f, 0.9f, 1.0f),     // 浅蓝=雪人
+            // 6 => new Color(0.3f, 0.9f, 0.4f),     // 绿=医疗师
+            // 9 => new Color(0.4f, 0.6f, 1.0f),     // 亮蓝=闪电法师
+            // 10 => new Color(0.9f, 0.8f, 0.2f),    // 金色=圣骑士
+            // 11 => new Color(0.4f, 0.7f, 0.3f),    // 墨绿=荆棘战士
+            // 12 => new Color(0.5f, 0.2f, 0.5f),    // 暗紫=骷髅王
+            // 13 => new Color(0.6f, 0.5f, 0.4f),    // 骨白=小骷髅兵
             _ => Color.white,
         };
 
@@ -899,7 +921,7 @@ public class BattleView : MonoBehaviour
     {
         InitStyles();
 
-        GUILayout.BeginArea(new Rect(10, 10, 420, Screen.height - 20));
+        GUILayout.BeginArea(new Rect(10, 10, 620, Screen.height - 20));
 
         // 连接状态
         GUILayout.Label($"<b>连接:</b> {ConnectionInfo}  |  ID: {LocalPlayerId}  |  帧: {CurrentFrame}", _richLabel);
@@ -907,7 +929,10 @@ public class BattleView : MonoBehaviour
 
         switch (_phase)
         {
-            case 0: DrawSelectionUI(); break;
+            case 0:
+                if (!UseExternalSelectUI)
+                    DrawSelectionUI();
+                break;
             case 1: DrawCombatUI();    break;
             case 2: DrawEndUI();       break;
         }
@@ -920,7 +945,7 @@ public class BattleView : MonoBehaviour
         int teamSize = FrameSync.CharacterConfig.TeamSize;
         GUILayout.Label($"<b>══ 选择角色 (每队{teamSize}个) ══</b>", _headerStyle);
 
-        var types = new[] { FrameSync.CharacterType.Warrior, FrameSync.CharacterType.Archer, FrameSync.CharacterType.Assassin, FrameSync.CharacterType.Mage, FrameSync.CharacterType.Healer, FrameSync.CharacterType.Witch, FrameSync.CharacterType.Barbarian, FrameSync.CharacterType.LightningMage };
+        var types = new[] { FrameSync.CharacterType.Warrior, FrameSync.CharacterType.Archer, FrameSync.CharacterType.Assassin, FrameSync.CharacterType.Mage, FrameSync.CharacterType.Healer, FrameSync.CharacterType.Witch, FrameSync.CharacterType.Barbarian, FrameSync.CharacterType.LightningMage, FrameSync.CharacterType.Paladin, FrameSync.CharacterType.ThornWarrior, FrameSync.CharacterType.SkeletonKing };
         for (int k = 0; k < types.Length; k++)
         {
             var ct = types[k];
@@ -1116,6 +1141,97 @@ public class BattleView : MonoBehaviour
             Lifetime = lifetime,
             PulseTimer = 0f,
         });
+    }
+
+    void OnFighterRevive(BattleEvent evt)
+    {
+        // SourceId=复活的角色, TargetId=施法者, IntParam=复活后HP
+        byte revivedId = evt.SourceId;
+        if (revivedId >= _fighters.Length || _fighters[revivedId] == null) return;
+        var vf = _fighters[revivedId];
+        vf.IsDead = false;
+        vf.CurrentHp = evt.IntParam;
+        vf.TargetPos = ViewFighter.RawToWorld(evt.PosXRaw, evt.PosYRaw);
+
+        // 重新显示角色
+        if (vf.Go != null)
+        {
+            vf.Go.SetActive(true);
+            vf.Go.transform.position = vf.TargetPos;
+            vf.Go.transform.localScale = Vector3.one;
+        }
+        // 恢复颜色
+        if (vf.HeadSR != null)
+            vf.HeadSR.color = vf.BaseColor;
+    }
+
+    void OnPullStart(BattleEvent evt)
+    {
+        // 拉取视觉：在拉取者和被拉者之间创建连线
+        byte sourceId = evt.SourceId;
+        byte targetId = evt.TargetId;
+        if (sourceId >= _fighters.Length || targetId >= _fighters.Length) return;
+        var source = _fighters[sourceId];
+        var target = _fighters[targetId];
+        if (source?.Go == null || target?.Go == null) return;
+
+        // 创建绿色连接线（类似ChainLightning但颜色不同）
+        var lineGo = new GameObject($"PullLine_P{sourceId}_P{targetId}");
+        var lr = lineGo.AddComponent<LineRenderer>();
+        lr.material = new Material(Shader.Find("Sprites/Default"));
+        lr.startColor = new Color(0.3f, 0.8f, 0.2f, 0.8f);
+        lr.endColor = new Color(0.3f, 0.8f, 0.2f, 0.3f);
+        lr.startWidth = 0.15f;
+        lr.endWidth = 0.08f;
+        lr.positionCount = 2;
+        lr.SetPosition(0, source.Go.transform.position);
+        lr.SetPosition(1, target.Go.transform.position);
+
+        _viewChainLinks.Add(new ViewChainLink { Go = lineGo, Lifetime = 0.7f });
+    }
+
+    void OnReflectDamage(BattleEvent evt)
+    {
+        // 反伤视觉闪烁效果
+        byte targetId = evt.TargetId; // 受反伤者
+        if (targetId >= _fighters.Length) return;
+        var vf = _fighters[targetId];
+        if (vf?.HeadSR == null) return;
+        // 闪白色表示反伤
+        vf.HeadSR.color = Color.white;
+    }
+
+    void OnSummonExplode(BattleEvent evt)
+    {
+        // 自爆视觉：在爆炸位置创建一个快速扩散消失的红色圆圈
+        var pos = ViewFighter.RawToWorld(evt.PosXRaw, evt.PosYRaw);
+        var go = new GameObject($"Explosion_P{evt.SourceId}");
+        go.transform.position = pos;
+        var sr = go.AddComponent<SpriteRenderer>();
+        sr.sprite = DefaultCircle;
+        sr.color = new Color(1f, 0.3f, 0f, 0.7f); // 橙红色
+        sr.sortingOrder = 20;
+        float radius = evt.IntParam > 0 ? evt.IntParam : 3f;
+        go.transform.localScale = Vector3.one * radius * 2f;
+        Destroy(go, 0.4f);
+    }
+
+    void OnSelfRevive(BattleEvent evt)
+    {
+        // 自我复活：与FighterRevive类似，但不需要位置（原地复活）
+        byte fid = evt.SourceId;
+        if (fid >= _fighters.Length || _fighters[fid] == null) return;
+        var vf = _fighters[fid];
+        vf.IsDead = false;
+        vf.CurrentHp = evt.IntParam;
+
+        if (vf.Go != null)
+        {
+            vf.Go.SetActive(true);
+            vf.Go.transform.localScale = Vector3.one;
+        }
+        if (vf.HeadSR != null)
+            vf.HeadSR.color = vf.BaseColor;
     }
 
     // ════════════════════════════════════════════════════════════

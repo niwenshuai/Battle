@@ -25,6 +25,7 @@ public class BattleEntry : MonoBehaviour
     FrameSyncClient _client;
     BattleLogic     _logic;
     BattleView      _view;
+    CharacterSelectUI _selectUI;
 
     void Start()
     {
@@ -35,6 +36,13 @@ public class BattleEntry : MonoBehaviour
         _view = gameObject.AddComponent<BattleView>();
         _view.EventSource         = _logic.EventQueue;
         _view.ClearEventsCallback = () => _logic.ClearEvents();
+        _view.UseExternalSelectUI = true; // 禁用IMGUI选角界面
+
+        // 创建选角UI（网络模式）
+        _selectUI = gameObject.AddComponent<CharacterSelectUI>();
+        _selectUI.IsLocalMode = false;
+        _selectUI.TeamSize = CharacterConfig.TeamSize;
+        _selectUI.OnCharacterPicked = OnCharacterPicked;
 
         _client.OnRoomJoined    += () => Debug.Log("[Battle] 已加入房间，按 F5 准备");
         _client.OnRoomUpdated   += players =>
@@ -46,13 +54,20 @@ public class BattleEntry : MonoBehaviour
         };
         _client.OnGameStarted   += _ =>
         {
-            // 游戏开始时，将本地玩家 ID 传给显示层
+            // 游戏开始时，将本地玩家 ID 传给显示层和选角UI
             _view.LocalPlayerId = _logic.LocalPlayerId;
+            _selectUI.LocalPlayerId = _logic.LocalPlayerId;
         };
         _client.OnGameEnded     += w => Debug.Log($"[Battle] 服务器结束 winner={w}");
         _client.OnErrorOccurred += e => Debug.LogWarning($"[Battle] {e}");
 
         _client.Init(_logic);
+    }
+
+    void OnCharacterPicked(byte playerId, CharacterType charType)
+    {
+        // 网络模式下设置UI选角输入，通过SampleLocalInput发送给服务器
+        _logic.PendingUISelection = (int)charType;
     }
 
     void Update()
@@ -69,6 +84,26 @@ public class BattleEntry : MonoBehaviour
         {
             _view.ConnectionInfo = _client.CurrentPhase.ToString();
             _view.CurrentFrame = _client.CurrentFrame;
+        }
+
+        // 同步选角事件到选角UI
+        if (_selectUI != null && _logic != null)
+        {
+            foreach (var evt in _logic.EventQueue)
+            {
+                if (evt.Type == BattleEventType.CharSelected)
+                {
+                    byte pid = evt.SourceId;
+                    var ct = (CharacterType)evt.IntParam;
+                    // 对手的选角通知到UI
+                    if (pid != _logic.LocalPlayerId)
+                        _selectUI.OnOpponentSelected(pid, ct);
+                }
+                else if (evt.Type == BattleEventType.BattleStart)
+                {
+                    _selectUI.Hide();
+                }
+            }
         }
     }
 }

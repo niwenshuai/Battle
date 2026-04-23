@@ -117,6 +117,10 @@ namespace FrameSync
                 if (_sourceFighter != null && !_sourceFighter.IsDead && !_sourceFighter.IsSummon)
                     _sourceFighter.OnDealDamage(finalDmg, f, frame, events);
 
+                // 反伤护盾
+                if (_sourceFighter != null)
+                    f.TryReflectDamage(_sourceFighter, finalDmg, frame, events);
+
                 // 打断判定
                 if (!f.IsDead)
                     f.TryInterrupt();

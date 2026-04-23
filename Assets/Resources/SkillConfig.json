@@ -1,0 +1,414 @@
+{
+  "_说明": "技能配置表 — 帧数单位基于15Hz（1秒=15帧）。角色通过ID引用技能。",
+
+  "_技能类型说明": {
+    "_统一规则": "Damage正数=伤害，负数=治疗。TargetTeam=Enemy/Ally。TargetScope=Single/All/LowestHp。所有技能效果由配置驱动。",
+    "MeleeAttack":    "近战攻击。Param1>0时为锥形AoE（角度=Param1度，半径=Range），命中扇形内所有敌人；Param1=0时为单体",
+    "RangedAttack":   "远程普攻，发射追踪弹射物。Param1=弹射物速度",
+    "AoEProjectile":  "直线飞行AoE弹射物。Param1=弹射物速度, Param2=爆炸半径。可通过Buffs附加效果",
+    "Instant":        "立即生效。根据TargetTeam和TargetScope选择目标，直接施加Damage（正=伤害/负=治疗）+ Buffs",
+    "Blink":          "瞬移到敌人身前（普攻射程内），不造成伤害",
+    "DashStrike":     "冲刺到敌人身前后造成伤害",
+    "KnockbackArrow": "击退箭，发射弹射物命中后击退。Param1=弹射物速度, Param2=击退距离",
+    "Stealth":        "隐身，持续一段时间不会被索敌但可受范围伤害。Param1=隐身帧数",
+    "ReactBlink":     "被动瞬移，受到攻击后自动向后瞬移，有CD。Param1=瞬移距离",
+    "SummonPet":      "召唤召唤物。Param1=召唤物存活帧数, Param2=召唤物血量",
+    "FleeOnHit":      "被动：受到攻击后向远离敌人方向后撤。Param1=后撤距离，有CD",
+    "CritStrike":     "被动：普攻有概率造成双倍伤害。Param1=触发概率%(100=必触发), Param2=伤害倍率%(200=双倍)",
+    "DodgeBlock":     "被动：受到伤害时有概率完全格挡（不格挡治疗）。Param1=触发概率%(100=必触发)",
+    "UltCDReduce":    "被动：对敌人造成伤害时有概率减少大招CD（召唤物伤害不算）。Param1=触发概率%(100=必触发), Param2=减少帧数",
+    "Lifesteal":      "被动：对敌人造成伤害时有概率回复自身血量。Param1=触发概率%(100=必触发), Param2=吸血百分比%(50=回复伤害的50%)",
+    "OnHitDebuff":    "被动：普攻命中敌人后自动附加Buffs中定义的debuff。无概率判定，每次命中必触发",
+    "PierceLine":     "穿刺直线弹射物。沿直线飞行穿过所有敌人，每个敌人只受一次伤害。Param1=弹射物速度",
+    "ChainLightning": "连锁闪电。命中首个目标后链接到最近的敌人，依次链接。Param1=连接距离上限, Param2=最大连接数（含首个目标）",
+    "AoEZone":        "持久性AoE区域（闪电云等）。在目标位置创建，周期性对范围内敌人造成伤害。Param1=区域半径, Param2=伤害间隔帧数, Param3=持续帧数",
+    "ReactLightning": "被动：受到攻击后有概率自动发射与普攻相同的穿刺闪电。Param1=触发概率%(100=必触发)",
+    "HealPercent":    "按目标最大HP百分比治疗。Param1=治疗百分比（30=回复目标30%最大HP）",
+    "Revive":         "复活一名阵亡的非召唤物友军。Param1=复活后HP百分比（50=50%血量），复活后所有技能CD刚开始冷却",
+    "AuraResistance": "被动光环：附近友军增加抗性。Param1=抗性加成百分比, Param2=光环范围格数",
+    "Pull":           "拉取技能：将范围内距离最远的敌人拉到自己身边，拉取中敌人硬直。Param1=拉取范围, Param2=拉取持续帧数",
+    "ReflectShield":  "反伤护盾：开启后受到伤害会反弹给攻击者一部分。Param1=持续帧数, Param2=反弹百分比",
+    "DamageAbsorb":   "被动：极小概率将受到的伤害转为补充血量。Param1=触发概率%",
+    "SummonPersistent":"召唤永久召唤物（无时间限制，死亡或本体死亡才消失）。Param1=最大召唤数量, Param2=召唤物血量",
+    "DetonateSummons": "引爆所有己方召唤物（触发死亡爆炸），然后立即召唤满额新召唤物。Param1=新召唤物血量",
+    "SelfRevive":      "被动：死亡后延迟复活，复活满血，所有技能进入冷却。Param1=复活延迟帧数, Param2=最大复活次数",
+    "DeathExplode":    "被动：死亡时自爆对附近敌人造成伤害。Param1=爆炸半径, Param2=爆炸伤害"
+  },
+
+  "_Buffs字段说明": "技能可通过Buffs数组附加任意buff。每个buff含: Type(Slow/Stun/AtkUp/DefUp/AtkSpeedUp/AtkSpeedDown/AtkDown), Duration(持续帧数), Value(效果值百分比), IsDebuff(true=减益/false=增益)。Slow的Value=0.5表示移速变为50%。AtkUp/DefUp/AtkSpeedUp/AtkSpeedDown/AtkDown的Value=0.3表示30%增幅/减伤/攻速/攻击力变化。",
+
+  "_TargetScope说明补充": "除Single/All/LowestHp外，还支持RandomN（如Random3）选择N个随机敌人",
+
+  "Skills": [
+    {
+      "Id": "warrior_atk", "Name": "斩击",
+      "Type": "MeleeAttack",
+      "Damage": 80, "Range": 1, "Cooldown": 8, "Windup": 1, "Recovery": 1,
+      "Param1": 120, "_Param1说明": "锥形AoE角度（度），120=三分之一圆",
+      "TargetTeam": "Enemy", "TargetScope": "Single"
+    },
+    {
+      "Id": "archer_atk", "Name": "射击",
+      "Type": "RangedAttack",
+      "Damage": 40, "Range": 6, "Cooldown": 12, "Windup": 5, "Recovery": 3,
+      "Param1": 8, "_Param1说明": "弹射物飞行速度",
+      "TargetTeam": "Enemy", "TargetScope": "Single"
+    },
+    {
+      "Id": "assassin_atk", "Name": "刺击",
+      "Type": "MeleeAttack",
+      "Damage": 60, "Range": 1, "Cooldown": 10, "Windup": 1, "Recovery": 1,
+      "TargetTeam": "Enemy", "TargetScope": "Single"
+    },
+    {
+      "Id": "blink", "Name": "瞬移",
+      "Type": "Blink",
+      "Cooldown": 60
+    },
+    {
+      "Id": "knockback_arrow", "Name": "击退箭",
+      "Type": "KnockbackArrow",
+      "Damage": 20, "Cooldown": 40,
+      "Param1": 8, "_Param1说明": "弹射物飞行速度",
+      "Param2": 3, "_Param2说明": "击退距离",
+      "TargetTeam": "Enemy", "TargetScope": "Single"
+    },
+    {
+      "Id": "stun_strike", "Name": "眩晕击",
+      "Type": "Instant",
+      "Damage": 50, "Cooldown": 75,
+      "TargetTeam": "Enemy", "TargetScope": "Single",
+      "Buffs": [{"Type": "Stun", "Duration": 30}],
+      "_Buffs说明": "眩晕30帧（2秒）"
+    },
+    {
+      "Id": "dash_slash", "Name": "裂地斩",
+      "Type": "DashStrike",
+      "Damage": 300, "Cooldown": 150, "Windup": 8, "Recovery": 6,
+      "TargetTeam": "Enemy", "TargetScope": "Single"
+    },
+    {
+      "Id": "arrow_rain", "Name": "箭雨",
+      "Type": "Instant",
+      "Damage": 250, "Cooldown": 120, "Windup": 6, "Recovery": 5,
+      "TargetTeam": "Enemy", "TargetScope": "All"
+    },
+    {
+      "Id": "stealth", "Name": "隐身",
+      "Type": "Stealth",
+      "Cooldown": 180, "Windup": 1, "Recovery": 0,
+      "Param1": 45, "_Param1说明": "隐身持续帧数（45=3秒）",
+      "TargetTeam": "Ally", "TargetScope": "Single"
+    },
+    {
+      "Id": "mage_fireball", "Name": "火球术",
+      "_说明": "法师普攻：直线飞行火球，碰到敌人或到达最大距离后爆炸，爆炸范围内造成AoE伤害",
+      "Type": "AoEProjectile",
+      "Damage": 80, "Range": 6, "Cooldown": 25, "Windup": 6, "Recovery": 4,
+      "Param1": 6, "_Param1说明": "弹射物飞行速度",
+      "Param2": 2, "_Param2说明": "爆炸半径",
+      "TargetTeam": "Enemy", "TargetScope": "Single"
+    },
+    {
+      "Id": "react_blink", "Name": "闪避瞬移",
+      "_说明": "法师副技能：受到攻击后自动向后瞬移，被动触发，有CD",
+      "Type": "ReactBlink",
+      "Cooldown": 90,
+      "Param1": 4, "_Param1说明": "后退瞬移距离"
+    },
+    {
+      "Id": "summon_snowman", "Name": "召唤雪人",
+      "_说明": "法师大招：召唤雪人助战，雪人有血量和存活时间，继承法师索敌规则",
+      "Type": "SummonPet",
+      "Cooldown": 180, "Windup": 6, "Recovery": 3,
+      "Param1": 150, "_Param1说明": "雪人存活帧数（150=10秒）",
+      "Param2": 500, "_Param2说明": "雪人血量"
+    },
+    {
+      "Id": "snowman_iceball", "Name": "冰球",
+      "_说明": "雪人普攻：直线飞行冰球，爆炸后造成AoE伤害并减速敌人",
+      "Type": "AoEProjectile",
+      "Damage": 40, "Range": 6, "Cooldown": 20, "Windup": 4, "Recovery": 3,
+      "Param1": 6, "_Param1说明": "弹射物飞行速度",
+      "Param2": 2, "_Param2说明": "爆炸半径",
+      "Buffs": [{"Type": "Slow", "Duration": 30, "Value": 0.5}],
+      "_Buffs说明": "减速30帧（2秒），移速降为50%"
+    },
+    {
+      "Id": "healer_orb", "Name": "魔法球",
+      "_说明": "医疗师普攻：投掷追踪魔法球，必定命中，少量伤害",
+      "Type": "RangedAttack",
+      "Damage": 25, "Range": 6, "Cooldown": 15, "Windup": 4, "Recovery": 3,
+      "Param1": 7, "_Param1说明": "弹射物飞行速度",
+      "TargetTeam": "Enemy", "TargetScope": "Single"
+    },
+    {
+      "Id": "single_heal", "Name": "治愈术",
+      "_说明": "医疗师副技能：单体治疗，无距离限制，优先血量最低的友方（含自身）",
+      "Type": "Instant",
+      "Damage": -200,
+      "Cooldown": 45, "Windup": 3, "Recovery": 2,
+      "TargetTeam": "Ally", "TargetScope": "LowestHp"
+    },
+    {
+      "Id": "group_heal", "Name": "圣光普照",
+      "_说明": "医疗师大招：群体治疗，治疗所有友方角色（包括自己）",
+      "Type": "Instant",
+      "Damage": -300, "Cooldown": 150, "Windup": 8, "Recovery": 5,
+      "TargetTeam": "Ally", "TargetScope": "All"
+    },
+    {
+      "Id": "flee_on_hit", "Name": "受击后撤",
+      "_说明": "被动技能：受到攻击后向远离敌人方向后撤一段距离",
+      "Type": "FleeOnHit",
+      "Cooldown": 0,
+      "Param1": 4, "_Param1说明": "后撤距离"
+    },
+    {
+      "Id": "crit_strike", "Name": "暴击",
+      "_说明": "被动技能：普攻有概率造成双倍伤害",
+      "Type": "CritStrike",
+      "Cooldown": 0,
+      "Param1": 30, "_Param1说明": "触发概率30%",
+      "Param2": 200, "_Param2说明": "伤害倍率200%（即双倍）"
+    },
+    {
+      "Id": "dodge_block", "Name": "格挡",
+      "_说明": "被动技能：受到伤害时有概率完全格挡（不格挡治疗）",
+      "Type": "DodgeBlock",
+      "Cooldown": 0,
+      "Param1": 25, "_Param1说明": "触发概率25%"
+    },
+    {
+      "Id": "ult_cd_reduce", "Name": "奥术涌流",
+      "_说明": "被动技能：对敌人造成伤害时有概率减少大招CD（召唤物伤害不算）",
+      "Type": "UltCDReduce",
+      "Cooldown": 0,
+      "Param1": 30, "_Param1说明": "触发概率30%",
+      "Param2": 15, "_Param2说明": "减少15帧（1秒）"
+    },
+    {
+      "Id": "lifesteal", "Name": "生命汲取",
+      "_说明": "被动技能：对敌人造成伤害时有概率回复自身血量",
+      "Type": "Lifesteal",
+      "Cooldown": 0,
+      "Param1": 30, "_Param1说明": "触发概率30%",
+      "Param2": 50, "_Param2说明": "吸血50%（回复造成伤害的50%）"
+    },
+    {
+      "Id": "witch_orb", "Name": "魔法球",
+      "_说明": "巫师普攻：发射追踪魔法球，命中后造成伤害",
+      "Type": "RangedAttack",
+      "Damage": 35, "Range": 6, "Cooldown": 15, "Windup": 4, "Recovery": 3,
+      "Param1": 7, "_Param1说明": "弹射物飞行速度",
+      "TargetTeam": "Enemy", "TargetScope": "Single"
+    },
+    {
+      "Id": "witch_atk_speed_up", "Name": "战意鼓舞",
+      "_说明": "巫师副技能：给血量最低的友方角色施加攻击速度提升buff",
+      "Type": "Instant",
+      "Damage": 0, "Cooldown": 60, "Windup": 3, "Recovery": 2,
+      "TargetTeam": "Ally", "TargetScope": "LowestHp",
+      "Buffs": [{"Type": "AtkSpeedUp", "Duration": 45, "Value": 0.3, "IsDebuff": false}],
+      "_Buffs说明": "攻速提升45帧（3秒），攻速增加30%（CD/前摇/后摇×0.7）"
+    },
+    {
+      "Id": "witch_mass_slow", "Name": "时间枷锁",
+      "_说明": "巫师大招：对3个随机敌人施加降低攻击速度debuff",
+      "Type": "Instant",
+      "Damage": 0, "Cooldown": 150, "Windup": 6, "Recovery": 4,
+      "TargetTeam": "Enemy", "TargetScope": "Random3",
+      "Buffs": [{"Type": "AtkSpeedDown", "Duration": 60, "Value": 0.6, "IsDebuff": true}],
+      "_Buffs说明": "攻速降低60帧（4秒），攻速降低40%（CD/前摇/后摇×1.4）"
+    },
+    {
+      "Id": "on_hit_atk_slow", "Name": "诅咒之触",
+      "_说明": "巫师被动：普攻命中敌人后自动附加攻速降低debuff",
+      "Type": "OnHitDebuff",
+      "Cooldown": 0,
+      "Buffs": [{"Type": "AtkSpeedDown", "Duration": 20, "Value": 0.15, "IsDebuff": true}],
+      "_Buffs说明": "攻速降低20帧（约1.3秒），攻速降低15%（CD/前摇/后摇×1.15）"
+    },
+    {
+      "Id": "barbarian_atk", "Name": "重击",
+      "_说明": "野蛮人普攻：近战重击，单体高伤害",
+      "Type": "MeleeAttack",
+      "Damage": 90, "Range": 1, "Cooldown": 10, "Windup": 2, "Recovery": 2,
+      "TargetTeam": "Enemy", "TargetScope": "Single"
+    },
+    {
+      "Id": "barbarian_atk_up", "Name": "战吼",
+      "_说明": "野蛮人副技能：给血量最低的友方角色施加攻击力提升buff",
+      "Type": "Instant",
+      "Damage": 0, "Cooldown": 60, "Windup": 3, "Recovery": 2,
+      "TargetTeam": "Ally", "TargetScope": "LowestHp",
+      "Buffs": [{"Type": "AtkUp", "Duration": 45, "Value": 0.35, "IsDebuff": false}],
+      "_Buffs说明": "攻击力提升45帧（3秒），攻击力增加35%"
+    },
+    {
+      "Id": "barbarian_mass_atk_down", "Name": "威吓",
+      "_说明": "野蛮人大招：对3个随机敌人施加降低攻击力debuff",
+      "Type": "Instant",
+      "Damage": 0, "Cooldown": 150, "Windup": 6, "Recovery": 4,
+      "TargetTeam": "Enemy", "TargetScope": "Random3",
+      "Buffs": [{"Type": "AtkDown", "Duration": 60, "Value": 0.6, "IsDebuff": true}],
+      "_Buffs说明": "攻击力降低60帧（4秒），攻击力降低40%"
+    },
+    {
+      "Id": "barbarian_lifesteal", "Name": "嗜血",
+      "_说明": "野蛮人被动：对敌人造成伤害时必定回复自身血量",
+      "Type": "Lifesteal",
+      "Cooldown": 0,
+      "Param1": 100, "_Param1说明": "触发概率100%（必定触发）",
+      "Param2": 30, "_Param2说明": "吸血30%（回复造成伤害的30%）"
+    },
+    {
+      "Id": "lightning_bolt", "Name": "闪电箭",
+      "_说明": "闪电法师普攻：发射一条直线穿刺闪电，穿过所有敌人造成伤害",
+      "Type": "PierceLine",
+      "Damage": 80, "Cooldown": 20, "Windup": 6, "Recovery": 6,
+      "Range": 6.0, "_Range说明": "最大射程6.0",
+      "Param1": 12, "_Param1说明": "弹射物速度12"
+    },
+    {
+      "Id": "chain_lightning", "Name": "连锁闪电",
+      "_说明": "闪电法师副技能：发射连锁闪电，命中首个目标后链接到最近的敌人，最多连接3个",
+      "Type": "ChainLightning",
+      "Damage": 70, "Cooldown": 90, "Windup": 8, "Recovery": 6,
+      "Range": 5.0, "_Range说明": "首个目标射程5.0",
+      "Param1": 4.0, "_Param1说明": "连接距离上限4.0",
+      "Param2": 3, "_Param2说明": "最大连接数3（含首个目标共3个）"
+    },
+    {
+      "Id": "lightning_storm", "Name": "雷暴",
+      "_说明": "闪电法师大招：在敌人上方创建圆形闪电云，持续对范围内敌人造成伤害",
+      "Type": "AoEZone",
+      "Damage": 50, "Cooldown": 100, "Windup": 10, "Recovery": 6,
+      "Range": 6.0, "_Range说明": "施法距离6.0",
+      "TargetTeam": "Enemy", "TargetScope": "Single",
+      "Param1": 2.5, "_Param1说明": "闪电云半径2.5",
+      "Param2": 15, "_Param2说明": "伤害间隔15帧（1秒）",
+      "Param3": 90, "_Param3说明": "持续90帧（6秒）"
+    },
+    {
+      "Id": "react_lightning", "Name": "雷电反击",
+      "_说明": "闪电法师被动：受到攻击后有概率自动发射与普攻相同的穿刺闪电",
+      "Type": "ReactLightning",
+      "Cooldown": 0,
+      "Param1": 40, "_Param1说明": "触发概率20%"
+    },
+    {
+      "Id": "paladin_atk", "Name": "圣光斩",
+      "_说明": "圣骑士近程单体攻击",
+      "Type": "MeleeAttack",
+      "Damage": 70, "Range": 1, "Cooldown": 10, "Windup": 2, "Recovery": 2,
+      "Param1": 0, "_Param1说明": "0=单体攻击",
+      "TargetTeam": "Enemy", "TargetScope": "Single"
+    },
+    {
+      "Id": "paladin_heal", "Name": "圣光祝福",
+      "_说明": "治疗一名血量最低的友军，恢复其最大HP的30%",
+      "Type": "HealPercent",
+      "Damage": 0, "Range": 8, "Cooldown": 45, "Windup": 3, "Recovery": 2,
+      "Param1": 30, "_Param1说明": "治疗百分比30%",
+      "TargetTeam": "Ally", "TargetScope": "LowestHp"
+    },
+    {
+      "Id": "paladin_revive", "Name": "神圣复活",
+      "_说明": "复活一名阵亡的非召唤物友军，复活后拥有50%血量，所有技能CD刚开始冷却",
+      "Type": "Revive",
+      "Damage": 0, "Range": 0, "Cooldown": 120, "Windup": 5, "Recovery": 3,
+      "Param1": 50, "_Param1说明": "复活后HP百分比50%",
+      "TargetTeam": "Ally", "TargetScope": "Single"
+    },
+    {
+      "Id": "aura_resistance", "Name": "圣光护盾",
+      "_说明": "被动光环：附近友军增加20%抗性",
+      "Type": "AuraResistance",
+      "Cooldown": 0,
+      "Param1": 20, "_Param1说明": "抗性加成20%",
+      "Param2": 5, "_Param2说明": "光环范围5格"
+    },
+    {
+      "Id": "thorn_atk", "Name": "荆棘击",
+      "_说明": "荆棘战士近程单体攻击",
+      "Type": "MeleeAttack",
+      "Damage": 75, "Range": 1, "Cooldown": 10, "Windup": 2, "Recovery": 2,
+      "Param1": 0, "_Param1说明": "0=单体攻击",
+      "TargetTeam": "Enemy", "TargetScope": "Single"
+    },
+    {
+      "Id": "thorn_pull", "Name": "荆棘锁链",
+      "_说明": "将范围内距离最远的敌人拉到自己身边，拉取中敌人硬直",
+      "Type": "Pull",
+      "Damage": 30, "Range": 8, "Cooldown": 60, "Windup": 3, "Recovery": 2,
+      "Param1": 8, "_Param1说明": "拉取范围8格",
+      "Param2": 8, "_Param2说明": "拉取持续8帧（约0.5秒）",
+      "TargetTeam": "Enemy", "TargetScope": "Single"
+    },
+    {
+      "Id": "reflect_shield", "Name": "荆棘壁垒",
+      "_说明": "开启反伤护盾，受到伤害反弹给攻击者一部分",
+      "Type": "ReflectShield",
+      "Damage": 0, "Cooldown": 150, "Windup": 3, "Recovery": 2,
+      "Param1": 75, "_Param1说明": "持续75帧（5秒）",
+      "Param2": 40, "_Param2说明": "反弹40%伤害",
+      "TargetTeam": "Ally", "TargetScope": "Single"
+    },
+    {
+      "Id": "damage_absorb", "Name": "荆棘之躯",
+      "_说明": "被动：极小概率将受到的伤害转为补充血量",
+      "Type": "DamageAbsorb",
+      "Cooldown": 0,
+      "Param1": 15, "_Param1说明": "触发概率15%（极小概率）"
+    },
+
+    {
+      "Id": "skeleton_king_atk", "Name": "骨刃斩击",
+      "_说明": "骷髅王近战普攻，单体",
+      "Type": "MeleeAttack",
+      "Damage": 60, "Range": 2, "Cooldown": 15, "Windup": 4, "Recovery": 3,
+      "TargetTeam": "Enemy", "TargetScope": "Single"
+    },
+    {
+      "Id": "summon_skeleton", "Name": "召唤骷髅兵",
+      "_说明": "副技能：召唤小骷髅兵，永久存在，上限3个，不够3个才能召唤",
+      "Type": "SummonPersistent",
+      "Damage": 0, "Range": 3, "Cooldown": 150, "Windup": 5, "Recovery": 3,
+      "Param1": 3, "_Param1说明": "最大召唤数量3",
+      "Param2": 400, "_Param2说明": "召唤物血量400",
+      "TargetTeam": "Ally", "TargetScope": "Single"
+    },
+    {
+      "Id": "detonate_summons", "Name": "亡灵引爆",
+      "_说明": "大招：立即引爆所有小骷髅兵（触发死亡自爆），然后马上召唤3个新的",
+      "Type": "DetonateSummons",
+      "Damage": 0, "Cooldown": 300, "Windup": 3, "Recovery": 3,
+      "Param1": 400, "_Param1说明": "新召唤物血量400",
+      "TargetTeam": "Ally", "TargetScope": "Single"
+    },
+    {
+      "Id": "self_revive", "Name": "不死之躯",
+      "_说明": "被动：死亡5秒后原地复活，满血，所有技能进入冷却，只能复活一次",
+      "Type": "SelfRevive",
+      "Cooldown": 0,
+      "Param1": 75, "_Param1说明": "复活延迟75帧（5秒）",
+      "Param2": 1, "_Param2说明": "最大复活次数1"
+    },
+    {
+      "Id": "skeleton_minion_atk", "Name": "骨爪",
+      "_说明": "小骷髅兵近战普攻，单体",
+      "Type": "MeleeAttack",
+      "Damage": 30, "Range": 2, "Cooldown": 15, "Windup": 3, "Recovery": 2,
+      "TargetTeam": "Enemy", "TargetScope": "Single"
+    },
+    {
+      "Id": "death_explode", "Name": "亡灵自爆",
+      "_说明": "被动：死亡时自爆，对附近敌人造成伤害",
+      "Type": "DeathExplode",
+      "Cooldown": 0,
+      "Param1": 3, "_Param1说明": "爆炸半径3格",
+      "Param2": 120, "_Param2说明": "爆炸伤害120"
+    }
+  ]
+}

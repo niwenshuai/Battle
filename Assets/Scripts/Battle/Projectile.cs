@@ -115,6 +115,10 @@ namespace FrameSync
                 if (_sourceFighter != null)
                     _sourceFighter.OnDealDamage(finalDmg, _target, frame, events);
 
+                // 反伤护盾
+                if (_sourceFighter != null)
+                    _target.TryReflectDamage(_sourceFighter, finalDmg, frame, events);
+
                 // 应用弹射物附加buff（普攻减速等）
                 if (_hitBuffs != null && !_target.IsDead)
                 {
