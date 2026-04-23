@@ -114,8 +114,9 @@ namespace FrameSync
                 // 被动：格挡 — 目标有概率完全免疫伤害
                 if (f.TryDodgeBlock()) continue;
 
-                // 造成伤害
-                f.Hp = f.Hp - Damage;
+                // 造成伤害（含抗性减伤）
+                var finalDmg = f.ApplyResistance(Damage);
+                f.Hp = f.Hp - finalDmg;
                 if (f.Hp < FixedInt.Zero) f.Hp = FixedInt.Zero;
 
                 events.Add(new BattleEvent
@@ -124,7 +125,7 @@ namespace FrameSync
                     Type     = BattleEventType.Damage,
                     SourceId = SourceId,
                     TargetId = f.PlayerId,
-                    IntParam = Damage.ToInt(),
+                    IntParam = finalDmg.ToInt(),
                 });
 
                 events.Add(new BattleEvent
@@ -137,7 +138,7 @@ namespace FrameSync
 
                 // 攻击者被动触发（吸血/大招CD减少等）— 召唤物不触发主人被动
                 if (_sourceFighter != null && !_sourceFighter.IsSummon)
-                    _sourceFighter.OnDealDamage(Damage, f, frame, events);
+                    _sourceFighter.OnDealDamage(finalDmg, f, frame, events);
 
                 // 打断判定：普攻前摇或移动中被伤害可能触发僵直
                 if (!f.IsDead)

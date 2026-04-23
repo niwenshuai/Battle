@@ -15,6 +15,7 @@ namespace FrameSync
         Healer   = 6, // 医疗师（远程辅助，治疗）
         Witch    = 7, // 巫师（远程，魔法球+攻速buff/debuff）
         Barbarian = 8, // 野蛮人（近战，攻击buff/debuff+吸血）
+        LightningMage = 9, // 闪电法师（远程，穿刺闪电+连锁+闪电云）
     }
 
     /// <summary>职业类型（用于索敌优先级）。</summary>
@@ -57,6 +58,8 @@ namespace FrameSync
         AoEExplosion,    // AoE爆炸     SourceId=发射者, PosXRaw/PosYRaw=爆炸位置, IntParam=爆炸半径
         BuffApplied,     // Buff施加     SourceId=施加者, TargetId=目标, IntParam=持续帧数
         HealApplied,     // 治疗         SourceId=治疗者, TargetId=目标, IntParam=治疗量
+        ChainLightningLink, // 连锁闪电链接  SourceId=上一个目标(或施法者), TargetId=下一个目标
+        LightningCloudSpawn, // 闪电云生成  SourceId=施法者, PosXRaw/PosYRaw=位置, IntParam=半径(Q16.16编码)
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -96,6 +99,8 @@ namespace FrameSync
                 BattleEventType.AoEExplosion     => $"[F{Frame}] P{SourceId} AoE爆炸 r={IntParam}",
                 BattleEventType.BuffApplied      => $"[F{Frame}] P{SourceId}→P{TargetId} 施加Buff {IntParam}帧",
                 BattleEventType.HealApplied      => $"[F{Frame}] P{SourceId}→P{TargetId} 治疗 +{IntParam}",
+                BattleEventType.ChainLightningLink => $"[F{Frame}] 连锁闪电 P{SourceId}→P{TargetId}",
+                BattleEventType.LightningCloudSpawn => $"[F{Frame}] P{SourceId} 闪电云生成",
                 _                             => $"[F{Frame}] {Type}",
             };
         }
@@ -168,6 +173,7 @@ namespace FrameSync
         public string NormalAttack;
         public string Skill2;
         public string Ultimate;
+        public int    Resistance = 50;  // 抗性（默认50，百分比减伤；>=100免疫，0=全额，负值=增伤）
     }
 
     /// <summary>布阵位置（JSON 反序列化用）。</summary>
@@ -199,6 +205,7 @@ namespace FrameSync
         static CharacterStats _healer;
         static CharacterStats _witch;
         static CharacterStats _barbarian;
+        static CharacterStats _lightningMage;
         static SkillConfig[] _skillsArray;
         static FormationPos[] _formation;
         static TargetPriorityEntry[] _targetPriority;
@@ -223,6 +230,7 @@ namespace FrameSync
             public CharacterStats Healer;
             public CharacterStats Witch;
             public CharacterStats Barbarian;
+            public CharacterStats LightningMage;
         }
 
         static int _arenaHalf = 10;
@@ -245,6 +253,7 @@ namespace FrameSync
                 _healer      = root.Healer;
                 _witch       = root.Witch;
                 _barbarian   = root.Barbarian;
+                _lightningMage = root.LightningMage;
                 _skillsArray = root.Skills;
                 _formation   = root.Formation;
                 _teamSize    = root.TeamSize > 0 ? root.TeamSize : 1;
@@ -264,6 +273,7 @@ namespace FrameSync
                 _healer   = new CharacterStats { MaxHp=1300, MoveSpeed=2, TurnSpeed=10, CollisionRadius=0.5f, Profession="Support", NormalAttack="healer_orb", Skill2="single_heal", Ultimate="group_heal" };
                 _witch    = new CharacterStats { MaxHp=1100, MoveSpeed=2, TurnSpeed=10, CollisionRadius=0.5f, Profession="Mage", Passive="on_hit_atk_slow", NormalAttack="witch_orb", Skill2="witch_atk_speed_up", Ultimate="witch_mass_slow" };
                 _barbarian = new CharacterStats { MaxHp=1800, MoveSpeed=1, TurnSpeed=8, CollisionRadius=0.5f, Profession="Warrior", Passive="barbarian_lifesteal", NormalAttack="barbarian_atk", Skill2="barbarian_atk_up", Ultimate="barbarian_mass_atk_down" };
+                _lightningMage = new CharacterStats { MaxHp=1000, MoveSpeed=2, TurnSpeed=10, CollisionRadius=0.5f, Profession="Mage", Passive="react_lightning", NormalAttack="lightning_bolt", Skill2="chain_lightning", Ultimate="lightning_storm" };
                 _skillsArray = System.Array.Empty<SkillConfig>();
                 _formation = new[] { new FormationPos { X = -5, Y = 0 } };
                 _teamSize = 1;
@@ -293,6 +303,7 @@ namespace FrameSync
                 CharacterType.Healer   => _healer,
                 CharacterType.Witch    => _witch,
                 CharacterType.Barbarian => _barbarian,
+                CharacterType.LightningMage => _lightningMage,
                 _ => _warrior,
             };
         }

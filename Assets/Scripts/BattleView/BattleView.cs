@@ -84,6 +84,31 @@ public class BattleView : MonoBehaviour
         public float Speed;  // 显示层飞行速度（世界单位/秒）
     }
 
+    /// <summary>穿刺弹射物显示对象（直线飞行，不追踪目标）。</summary>
+    class ViewPiercingProjectile
+    {
+        public GameObject Go;
+        public Vector3 Direction;  // 世界空间飞行方向
+        public float Speed;
+        public float MaxLifetime;  // 最大存活秒数
+        public float Elapsed;
+    }
+
+    /// <summary>闪电云显示对象（持久性AoE区域）。</summary>
+    class ViewLightningCloud
+    {
+        public GameObject Go;
+        public float Lifetime;     // 剩余秒数
+        public float PulseTimer;   // 脉冲动画计时
+    }
+
+    /// <summary>连锁闪电连接线显示对象。</summary>
+    class ViewChainLink
+    {
+        public GameObject Go;
+        public float Lifetime;     // 剩余秒数
+    }
+
     // ═══ 运行时生成的默认圆形精灵 ═══
     static Sprite _defaultCircle;
     static Sprite DefaultCircle
@@ -162,6 +187,9 @@ public class BattleView : MonoBehaviour
 
     ViewFighter[] _fighters = new ViewFighter[64]; // id-indexed, max 63 fighters
     readonly List<ViewProjectile> _viewProjectiles = new();
+    readonly List<ViewPiercingProjectile> _viewPiercingProjectiles = new();
+    readonly List<ViewLightningCloud> _viewLightningClouds = new();
+    readonly List<ViewChainLink> _viewChainLinks = new();
     int _phase;                  // 0=Selecting, 1=Fighting, 2=Ended
     int _winnerId;
     readonly List<List<byte>> _teamSelections = new() { null, new(), new() }; // 1-based teams
@@ -268,6 +296,80 @@ public class BattleView : MonoBehaviour
                 vp.Go.transform.position += dir.normalized * step;
             }
         }
+
+        // 4. 穿刺弹射物飞行（直线，不追踪）
+        for (int p = _viewPiercingProjectiles.Count - 1; p >= 0; p--)
+        {
+            var vp = _viewPiercingProjectiles[p];
+            if (vp.Go == null) { _viewPiercingProjectiles.RemoveAt(p); continue; }
+
+            vp.Elapsed += Time.deltaTime;
+            if (vp.Elapsed >= vp.MaxLifetime)
+            {
+                Destroy(vp.Go);
+                _viewPiercingProjectiles.RemoveAt(p);
+                continue;
+            }
+
+            vp.Go.transform.position += vp.Direction * vp.Speed * Time.deltaTime;
+        }
+
+        // 5. 闪电云持续显示
+        for (int p = _viewLightningClouds.Count - 1; p >= 0; p--)
+        {
+            var vc = _viewLightningClouds[p];
+            if (vc.Go == null) { _viewLightningClouds.RemoveAt(p); continue; }
+
+            vc.Lifetime -= Time.deltaTime;
+            if (vc.Lifetime <= 0f)
+            {
+                Destroy(vc.Go);
+                _viewLightningClouds.RemoveAt(p);
+                continue;
+            }
+
+            // 脉冲缩放动画
+            vc.PulseTimer += Time.deltaTime;
+            float pulse = 1f + 0.08f * Mathf.Sin(vc.PulseTimer * 4f);
+            var s = vc.Go.transform.localScale;
+            vc.Go.transform.localScale = new Vector3(s.x, pulse * 0.15f, s.z);
+
+            // 渐隐（最后1秒开始）
+            if (vc.Lifetime < 1f)
+            {
+                var rend = vc.Go.GetComponent<Renderer>();
+                if (rend != null)
+                {
+                    var c = rend.material.color;
+                    c.a = Mathf.Clamp01(vc.Lifetime);
+                    rend.material.color = c;
+                }
+            }
+        }
+
+        // 6. 连锁闪电连接线衰减
+        for (int p = _viewChainLinks.Count - 1; p >= 0; p--)
+        {
+            var vl = _viewChainLinks[p];
+            if (vl.Go == null) { _viewChainLinks.RemoveAt(p); continue; }
+
+            vl.Lifetime -= Time.deltaTime;
+            if (vl.Lifetime <= 0f)
+            {
+                Destroy(vl.Go);
+                _viewChainLinks.RemoveAt(p);
+                continue;
+            }
+
+            // 渐隐
+            var lr = vl.Go.GetComponent<LineRenderer>();
+            if (lr != null)
+            {
+                float alpha = Mathf.Clamp01(vl.Lifetime / 0.5f);
+                lr.startColor = new Color(0.4f, 0.7f, 1f, alpha);
+                lr.endColor = new Color(0.8f, 0.9f, 1f, alpha);
+            }
+        }
     }
 
     // ════════════════════════════════════════════════════════════
@@ -354,6 +456,14 @@ public class BattleView : MonoBehaviour
             case BattleEventType.HealApplied:
                 OnHealApplied(evt);
                 break;
+
+            case BattleEventType.ChainLightningLink:
+                OnChainLightningLink(evt);
+                break;
+
+            case BattleEventType.LightningCloudSpawn:
+                OnLightningCloudSpawn(evt);
+                break;
         }
     }
 
@@ -408,6 +518,7 @@ public class BattleView : MonoBehaviour
             4 => new Color(0.95f, 0.5f, 0.1f),    // 橙=法师
             5 => new Color(0.7f, 0.9f, 1.0f),     // 浅蓝=雪人
             6 => new Color(0.3f, 0.9f, 0.4f),     // 绿=医疗师
+            9 => new Color(0.4f, 0.6f, 1.0f),     // 亮蓝=闪电法师
             _ => Color.white,
         };
 
@@ -522,23 +633,58 @@ public class BattleView : MonoBehaviour
     void OnProjectileSpawn(BattleEvent evt)
     {
         var startPos = ViewFighter.RawToWorld(evt.PosXRaw, evt.PosYRaw);
-        var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         bool isSkill2 = evt.IntParam == 1;
         bool isAoE = evt.IntParam == 2;
-        go.name = isAoE ? $"AoEProj_P{evt.SourceId}"
+        bool isPierce = evt.IntParam == 3;
+
+        if (isPierce)
+        {
+            // 穿刺弹射物：直线飞行，不追踪
+            var target = _fighters[evt.TargetId];
+            Vector3 dir;
+            if (target != null)
+                dir = (target.DisplayPos - startPos).normalized;
+            else
+                dir = Vector3.forward;
+
+            // 创建拉伸的闪电视觉（长条形）
+            var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            go.name = $"PierceProj_P{evt.SourceId}";
+            go.transform.position = startPos;
+            go.transform.localScale = new Vector3(0.15f, 0.15f, 0.8f);
+            go.transform.rotation = Quaternion.LookRotation(dir);
+            var col = go.GetComponent<Collider>();
+            if (col != null) Destroy(col);
+            var rend = go.GetComponent<Renderer>();
+            if (rend != null)
+                rend.material.color = new Color(0.5f, 0.8f, 1f);
+
+            _viewPiercingProjectiles.Add(new ViewPiercingProjectile
+            {
+                Go = go,
+                Direction = dir,
+                Speed = 18f,
+                MaxLifetime = 1.2f,
+                Elapsed = 0f,
+            });
+            return;
+        }
+
+        var projGo = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        projGo.name = isAoE ? $"AoEProj_P{evt.SourceId}"
                  : isSkill2 ? $"KnockArrow_P{evt.SourceId}"
                  : $"Arrow_P{evt.SourceId}";
-        go.transform.localScale = Vector3.one * (isAoE ? 0.5f : isSkill2 ? 0.4f : 0.3f);
-        go.transform.position = startPos;
+        projGo.transform.localScale = Vector3.one * (isAoE ? 0.5f : isSkill2 ? 0.4f : 0.3f);
+        projGo.transform.position = startPos;
 
         // 移除碰撞体
-        var col = go.GetComponent<Collider>();
-        if (col != null) Destroy(col);
+        var projCol = projGo.GetComponent<Collider>();
+        if (projCol != null) Destroy(projCol);
 
         // AoE=橙色, 击退箭=青绿色, 普攻=黄色
-        var rend = go.GetComponent<Renderer>();
-        if (rend != null)
-            rend.material.color = isAoE
+        var projRend = projGo.GetComponent<Renderer>();
+        if (projRend != null)
+            projRend.material.color = isAoE
                 ? new Color(1f, 0.4f, 0.1f)
                 : isSkill2
                     ? new Color(0.2f, 1f, 0.6f)
@@ -548,7 +694,7 @@ public class BattleView : MonoBehaviour
         {
             SourceId = evt.SourceId,
             TargetId = evt.TargetId,
-            Go       = go,
+            Go       = projGo,
             Speed    = 12f,  // 显示层飞行速度
         });
     }
@@ -582,7 +728,8 @@ public class BattleView : MonoBehaviour
 
     void OnAoEExplosion(BattleEvent evt)
     {
-        // 销毁对应的弹射物显示对象
+        // 销毁对应的弹射物显示对象（仅AoEProjectile类型，非闪电云）
+        bool fromCloud = false;
         for (int i = _viewProjectiles.Count - 1; i >= 0; i--)
         {
             if (_viewProjectiles[i].SourceId == evt.SourceId)
@@ -593,11 +740,20 @@ public class BattleView : MonoBehaviour
             }
         }
 
+        // 检查是否来自闪电云（没有对应的弹射物）
+        for (int i = 0; i < _viewLightningClouds.Count; i++)
+        {
+            if (_viewLightningClouds[i].Go != null) { fromCloud = true; break; }
+        }
+
         // 显示爆炸效果
         var pos = ViewFighter.RawToWorld(evt.PosXRaw, evt.PosYRaw);
         var source = evt.SourceId < _fighters.Length ? _fighters[evt.SourceId] : null;
         bool isIce = source != null && source.CharType == 5; // Snowman
-        Color color = isIce ? new Color(0.3f, 0.7f, 1f) : new Color(1f, 0.4f, 0.1f);
+        bool isLightning = source != null && source.CharType == 9; // LightningMage
+        Color color = isLightning ? new Color(0.4f, 0.6f, 1f)
+                    : isIce ? new Color(0.3f, 0.7f, 1f)
+                    : new Color(1f, 0.4f, 0.1f);
         StartCoroutine(ShowExplosion(pos, evt.IntParam, color));
     }
 
@@ -764,7 +920,7 @@ public class BattleView : MonoBehaviour
         int teamSize = FrameSync.CharacterConfig.TeamSize;
         GUILayout.Label($"<b>══ 选择角色 (每队{teamSize}个) ══</b>", _headerStyle);
 
-        var types = new[] { FrameSync.CharacterType.Warrior, FrameSync.CharacterType.Archer, FrameSync.CharacterType.Assassin, FrameSync.CharacterType.Mage, FrameSync.CharacterType.Healer, FrameSync.CharacterType.Witch, FrameSync.CharacterType.Barbarian };
+        var types = new[] { FrameSync.CharacterType.Warrior, FrameSync.CharacterType.Archer, FrameSync.CharacterType.Assassin, FrameSync.CharacterType.Mage, FrameSync.CharacterType.Healer, FrameSync.CharacterType.Witch, FrameSync.CharacterType.Barbarian, FrameSync.CharacterType.LightningMage };
         for (int k = 0; k < types.Length; k++)
         {
             var ct = types[k];
@@ -907,6 +1063,61 @@ public class BattleView : MonoBehaviour
             GUILayout.Label("  <color=red><b>你输了...</b></color>", _headerStyle);
     }
 
+    void OnChainLightningLink(BattleEvent evt)
+    {
+        var source = _fighters[evt.SourceId];
+        var target = _fighters[evt.TargetId];
+        if (source == null || target == null) return;
+
+        // 创建连接线（LineRenderer）
+        var go = new GameObject($"ChainLink_{evt.SourceId}_{evt.TargetId}");
+        var lr = go.AddComponent<LineRenderer>();
+        lr.positionCount = 2;
+        lr.SetPosition(0, source.DisplayPos);
+        lr.SetPosition(1, target.DisplayPos);
+        lr.startWidth = 0.12f;
+        lr.endWidth = 0.08f;
+        lr.startColor = new Color(0.4f, 0.7f, 1f, 1f);
+        lr.endColor = new Color(0.8f, 0.9f, 1f, 1f);
+        lr.material = new Material(Shader.Find("Sprites/Default"));
+        lr.sortingOrder = 10;
+
+        _viewChainLinks.Add(new ViewChainLink
+        {
+            Go = go,
+            Lifetime = 0.5f,
+        });
+    }
+
+    void OnLightningCloudSpawn(BattleEvent evt)
+    {
+        var pos = ViewFighter.RawToWorld(evt.PosXRaw, evt.PosYRaw);
+        float lifetime = evt.IntParam / 15f; // 帧→秒
+
+        // 创建扁平半透明圆柱体作为闪电云
+        var go = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        go.name = $"LightningCloud_P{evt.SourceId}";
+        go.transform.position = pos + Vector3.up * 0.1f; // 略微抬高
+        go.transform.localScale = new Vector3(5f, 0.15f, 5f); // 扁平大圆
+        var col = go.GetComponent<Collider>();
+        if (col != null) Destroy(col);
+        var rend = go.GetComponent<Renderer>();
+        if (rend != null)
+        {
+            // 半透明蓝紫色材质
+            var mat = new Material(Shader.Find("Sprites/Default"));
+            mat.color = new Color(0.3f, 0.4f, 0.9f, 0.45f);
+            rend.material = mat;
+        }
+
+        _viewLightningClouds.Add(new ViewLightningCloud
+        {
+            Go = go,
+            Lifetime = lifetime,
+            PulseTimer = 0f,
+        });
+    }
+
     // ════════════════════════════════════════════════════════════
     //  清理
     // ════════════════════════════════════════════════════════════
@@ -915,5 +1126,11 @@ public class BattleView : MonoBehaviour
     {
         for (int i = 1; i < _fighters.Length; i++)
             if (_fighters[i]?.Go != null) Destroy(_fighters[i].Go);
+        for (int i = _viewPiercingProjectiles.Count - 1; i >= 0; i--)
+            if (_viewPiercingProjectiles[i].Go != null) Destroy(_viewPiercingProjectiles[i].Go);
+        for (int i = _viewLightningClouds.Count - 1; i >= 0; i--)
+            if (_viewLightningClouds[i].Go != null) Destroy(_viewLightningClouds[i].Go);
+        for (int i = _viewChainLinks.Count - 1; i >= 0; i--)
+            if (_viewChainLinks[i].Go != null) Destroy(_viewChainLinks[i].Go);
     }
 }

@@ -70,6 +70,7 @@
     <Compile Include="Assets/Scripts/Battle/BattleBuff.cs" />
     <Compile Include="Assets/Scripts/Network/FrameSync/FixedColliders.cs" />
     <Compile Include="Assets/Scripts/Network/FrameSync/NavMesh/FixedNavMeshPathfinder.cs" />
+    <Compile Include="Assets/Scripts/Battle/LightningCloud.cs" />
     <Compile Include="Assets/Scripts/BattleView/BattleView.cs" />
     <Compile Include="Assets/Scripts/Network/FrameSync/NavMesh/FixedNavMeshData.cs" />
     <Compile Include="Assets/Scripts/Battle/BattleData.cs" />
@@ -85,6 +86,7 @@
     <Compile Include="Assets/Scripts/ScrollItemData.cs" />
     <Compile Include="Assets/Scripts/Network/FrameSync/FrameSyncDemoEntry.cs" />
     <Compile Include="Assets/Scripts/Network/FrameSync/BehaviorTree/BehaviorTree.cs" />
+    <Compile Include="Assets/Scripts/Battle/PiercingProjectile.cs" />
     <Compile Include="Assets/Scripts/Network/TcpConnection.cs" />
     <Compile Include="Assets/Scripts/Network/FrameSync/FixedPhysics.cs" />
     <Compile Include="Assets/Scripts/Network/FrameSync/NavMesh/FixedNavMeshAgent.cs" />

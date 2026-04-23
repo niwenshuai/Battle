@@ -31,12 +31,18 @@
     "DodgeBlock":     "被动：受到伤害时有概率完全格挡（不格挡治疗）。Param1=触发概率%(100=必触发)",
     "UltCDReduce":    "被动：对敌人造成伤害时有概率减少大招CD（召唤物伤害不算）。Param1=触发概率%(100=必触发), Param2=减少帧数",
     "Lifesteal":      "被动：对敌人造成伤害时有概率回复自身血量。Param1=触发概率%(100=必触发), Param2=吸血百分比%(50=回复伤害的50%)",
-    "OnHitDebuff":    "被动：普攻命中敌人后自动附加Buffs中定义的debuff。无概率判定，每次命中必触发"
+    "OnHitDebuff":    "被动：普攻命中敌人后自动附加Buffs中定义的debuff。无概率判定，每次命中必触发",
+    "PierceLine":     "穿刺直线弹射物。沿直线飞行穿过所有敌人，每个敌人只受一次伤害。Param1=弹射物速度",
+    "ChainLightning": "连锁闪电。命中首个目标后链接到最近的敌人，依次链接。Param1=连接距离上限, Param2=最大连接数（含首个目标）",
+    "AoEZone":        "持久性AoE区域（闪电云等）。在目标位置创建，周期性对范围内敌人造成伤害。Param1=区域半径, Param2=伤害间隔帧数, Param3=持续帧数",
+    "ReactLightning": "被动：受到攻击后有概率自动发射与普攻相同的穿刺闪电。Param1=触发概率%(100=必触发)"
   },
 
   "_Buffs字段说明": "技能可通过Buffs数组附加任意buff。每个buff含: Type(Slow/Stun/AtkUp/DefUp/AtkSpeedUp/AtkSpeedDown/AtkDown), Duration(持续帧数), Value(效果值百分比), IsDebuff(true=减益/false=增益)。Slow的Value=0.5表示移速变为50%。AtkUp/DefUp/AtkSpeedUp/AtkSpeedDown/AtkDown的Value=0.3表示30%增幅/减伤/攻速/攻击力变化。",
 
   "_TargetScope说明补充": "除Single/All/LowestHp外，还支持RandomN（如Random3）选择N个随机敌人",
+
+  "_Resistance说明": "抗性属性（默认50）。减伤百分比：>=100完全免疫，50=受50%伤害，0=全额伤害，-100=受200%伤害。公式：实际伤害 = 原始伤害 × (100-抗性)/100，至少1点。治疗不受抗性影响。",
 
   "Skills": [
     {
@@ -260,6 +266,41 @@
       "Cooldown": 0,
       "Param1": 100, "_Param1说明": "触发概率100%（必定触发）",
       "Param2": 30, "_Param2说明": "吸血30%（回复造成伤害的30%）"
+    },
+    {
+      "Id": "lightning_bolt", "Name": "闪电箭",
+      "_说明": "闪电法师普攻：发射一条直线穿刺闪电，穿过所有敌人造成伤害",
+      "Type": "PierceLine",
+      "Damage": 80, "Cooldown": 20, "Windup": 6, "Recovery": 6,
+      "Range": 6.0, "_Range说明": "最大射程6.0",
+      "Param1": 12, "_Param1说明": "弹射物速度12"
+    },
+    {
+      "Id": "chain_lightning", "Name": "连锁闪电",
+      "_说明": "闪电法师副技能：发射连锁闪电，命中首个目标后链接到最近的敌人，最多连接3个",
+      "Type": "ChainLightning",
+      "Damage": 70, "Cooldown": 90, "Windup": 8, "Recovery": 6,
+      "Range": 5.0, "_Range说明": "首个目标射程5.0",
+      "Param1": 4.0, "_Param1说明": "连接距离上限4.0",
+      "Param2": 3, "_Param2说明": "最大连接数3（含首个目标共3个）"
+    },
+    {
+      "Id": "lightning_storm", "Name": "雷暴",
+      "_说明": "闪电法师大招：在敌人上方创建圆形闪电云，持续对范围内敌人造成伤害",
+      "Type": "AoEZone",
+      "Damage": 50, "Cooldown": 100, "Windup": 10, "Recovery": 6,
+      "Range": 6.0, "_Range说明": "施法距离6.0",
+      "TargetTeam": "Enemy", "TargetScope": "Single",
+      "Param1": 2.5, "_Param1说明": "闪电云半径2.5",
+      "Param2": 15, "_Param2说明": "伤害间隔15帧（1秒）",
+      "Param3": 90, "_Param3说明": "持续90帧（6秒）"
+    },
+    {
+      "Id": "react_lightning", "Name": "雷电反击",
+      "_说明": "闪电法师被动：受到攻击后有概率自动发射与普攻相同的穿刺闪电",
+      "Type": "ReactLightning",
+      "Cooldown": 0,
+      "Param1": 40, "_Param1说明": "触发概率20%"
     }
   ],
 
@@ -275,10 +316,11 @@
 
   "_Warrior说明": "剑士 — 近战战士，高血量低移速，锥形AoE斩击，副技能眩晕击，大招裂地斩",
   "Warrior": {
-    "MaxHp": 2000,
+    "MaxHp": 2500,
     "MoveSpeed": 1,
     "TurnSpeed": 8,
     "CollisionRadius": 0.5,
+    "Resistance": 50, "_Resistance说明": "抗性(百分比减伤，60=受40%伤害)，战士护甲厚抗性高",
     "StaggerDuration": 8, "_StaggerDuration说明": "僵直帧数（8≈ 0.5秒），战士护甲厚僵直短",
     "HeadIcon": "HeadIcons/warrior",
     "Profession": "Warrior", "_职业": "战士",
@@ -294,6 +336,7 @@
     "MoveSpeed": 3,
     "TurnSpeed": 10,
     "CollisionRadius": 0.5,
+    "Resistance": 50, "_Resistance说明": "抗性(百分比减伤，45=受55%伤害)，弓手较脆弱",
     "StaggerDuration": 12, "_StaggerDuration说明": "僵直帧数（12≈ 0.8秒）",
     "HeadIcon": "HeadIcons/archer",
     "Profession": "Archer", "_职业": "射手",
@@ -305,10 +348,11 @@
 
   "_Assassin说明": "刺客 — 近战刺客，低血量中移速，单体刺击，副技能瞬移，大招隐身",
   "Assassin": {
-    "MaxHp": 1000,
+    "MaxHp": 1500,
     "MoveSpeed": 2,
     "TurnSpeed": 10,
     "CollisionRadius": 0.5,
+    "Resistance": 40, "_Resistance说明": "抗性(百分比减伤，40=受60%伤害)，刺客轻装抗性低",
     "StaggerDuration": 10, "_StaggerDuration说明": "僵直帧数（10≈ 0.67秒）",
     "HeadIcon": "HeadIcons/assassin",
     "Profession": "Assassin", "_职业": "刺客",
@@ -324,6 +368,7 @@
     "MoveSpeed": 2,
     "TurnSpeed": 10,
     "CollisionRadius": 0.5,
+    "Resistance": 35, "_Resistance说明": "抗性(百分比减伤，35=受65%伤害)，法师脆皮抗性低",
     "StaggerDuration": 15, "_StaggerDuration说明": "僵直帧数（15=1秒），法师较脆弱僵直久",
     "HeadIcon": "HeadIcons/mage",
     "Profession": "Mage", "_职业": "法师",
@@ -339,6 +384,7 @@
     "MoveSpeed": 1,
     "TurnSpeed": 10,
     "CollisionRadius": 0.5,
+    "Resistance": 60, "_Resistance说明": "抗性(百分比减伤，30=受70%伤害)，召唤物抗性低",
     "StaggerDuration": 0, "_StaggerDuration说明": "召唤物不会被打断",
     "HeadIcon": "HeadIcons/snowman",
     "Profession": "Mage", "_职业": "法师（继承法师索敌规则）",
@@ -352,6 +398,7 @@
     "MoveSpeed": 2,
     "TurnSpeed": 10,
     "CollisionRadius": 0.5,
+    "Resistance": 30, "_Resistance说明": "抗性(百分比减伤，50=受50%伤害)",
     "StaggerDuration": 12, "_StaggerDuration说明": "僵直帧数（12≈ 0.8秒）",
     "HeadIcon": "HeadIcons/healer",
     "Profession": "Support", "_职业": "辅助",
@@ -367,6 +414,7 @@
     "MoveSpeed": 2,
     "TurnSpeed": 10,
     "CollisionRadius": 0.5,
+    "Resistance": 40, "_Resistance说明": "抗性(百分比减伤，40=受60%伤害)",
     "StaggerDuration": 14, "_StaggerDuration说明": "僵直帧数（14≈ 0.93秒）",
     "HeadIcon": "HeadIcons/witch",
     "Profession": "Support", "_职业": "辅助",
@@ -378,10 +426,11 @@
 
   "_Barbarian说明": "野蛮人 — 近战战士，高血量低移速，单体重击普攻，副技能战吼（给友方加攻击力buff），大招威吓（对3个敌人降攻击力），被动嗜血（必定吸血）",
   "Barbarian": {
-    "MaxHp": 1800,
+    "MaxHp": 2800,
     "MoveSpeed": 1,
     "TurnSpeed": 8,
     "CollisionRadius": 0.5,
+    "Resistance": 60, "_Resistance说明": "抗性(百分比减伤，60=受40%伤害)，野蛮人体格强壮抗性高",
     "StaggerDuration": 6, "_StaggerDuration说明": "僵直帧数（6≈ 0.4秒），野蛮人体格强壮僵直极短",
     "HeadIcon": "HeadIcons/barbarian",
     "Profession": "Warrior", "_职业": "战士",
@@ -389,5 +438,21 @@
     "NormalAttack": "barbarian_atk", "_普攻": "重击（单体近战）",
     "Skill2": "barbarian_atk_up", "_副技能": "战吼（友方攻击力提升）",
     "Ultimate": "barbarian_mass_atk_down", "_大招": "威吓（3个敌人攻击力降低）"
+  },
+
+  "_LightningMage说明": "闪电法师 — 远程法师，普攻发射穿刺闪电，副技能连锁闪电最多连接3个敌人，大招召唤闪电云持续伤害，被动受击概率反射闪电",
+  "LightningMage": {
+    "MaxHp": 1200,
+    "MoveSpeed": 2,
+    "TurnSpeed": 10,
+    "CollisionRadius": 0.5,
+    "Resistance": 35, "_Resistance说明": "抗性(百分比减伤，35=受65%伤害)，法师脆皮",
+    "StaggerDuration": 10, "_StaggerDuration说明": "僵直帧数（10≈ 0.67秒），法师僵直较长",
+    "HeadIcon": "HeadIcons/lightning_mage",
+    "Profession": "Mage", "_职业": "法师",
+    "Passive": "react_lightning", "_被动": "雷电反击（受击40%概率反射穿刺闪电）",
+    "NormalAttack": "lightning_bolt", "_普攻": "闪电箭（穿刺直线闪电）",
+    "Skill2": "chain_lightning", "_副技能": "连锁闪电（最多连接3个敌人）",
+    "Ultimate": "lightning_storm", "_大招": "雷暴（创建闪电云持续伤害）"
   }
 }

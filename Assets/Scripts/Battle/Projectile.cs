@@ -79,8 +79,9 @@ namespace FrameSync
                     return true;
                 }
 
-                // 造成伤害
-                _target.Hp = _target.Hp - Damage;
+                // 造成伤害（含抗性减伤）
+                var finalDmg = _target.ApplyResistance(Damage);
+                _target.Hp = _target.Hp - finalDmg;
                 if (_target.Hp < FixedInt.Zero)
                     _target.Hp = FixedInt.Zero;
 
@@ -90,7 +91,7 @@ namespace FrameSync
                     Type     = BattleEventType.ProjectileHit,
                     SourceId = SourceId,
                     TargetId = TargetId,
-                    IntParam = Damage.ToInt(),
+                    IntParam = finalDmg.ToInt(),
                 });
 
                 events.Add(new BattleEvent
@@ -99,7 +100,7 @@ namespace FrameSync
                     Type     = BattleEventType.Damage,
                     SourceId = SourceId,
                     TargetId = TargetId,
-                    IntParam = Damage.ToInt(),
+                    IntParam = finalDmg.ToInt(),
                 });
 
                 events.Add(new BattleEvent
@@ -112,7 +113,7 @@ namespace FrameSync
 
                 // 攻击者被动触发（吸血/大招CD减少/命中debuff等）
                 if (_sourceFighter != null)
-                    _sourceFighter.OnDealDamage(Damage, _target, frame, events);
+                    _sourceFighter.OnDealDamage(finalDmg, _target, frame, events);
 
                 // 应用弹射物附加buff（普攻减速等）
                 if (_hitBuffs != null && !_target.IsDead)

@@ -124,6 +124,7 @@ namespace FrameSync
         int _ultTargetRandomCount;   // >0时随机选N个目标
         int _stealthFramesLeft;
         int _staggerDuration;     // 本角色僵直帧数（配置值）
+        FixedInt _resistance;     // 抗性（百分比减伤，50=受50%伤害）
         int _staggerFramesLeft;   // 当前僵直剩余帧数
 
         /// <summary>本帧新生成的弹射物（由 BattleLogic 取走并管理）。</summary>
@@ -132,8 +133,14 @@ namespace FrameSync
         /// <summary>本帧新生成的AoE弹射物（火球/冰球，由 BattleLogic 取走）。</summary>
         public readonly List<AoEProjectile> PendingAoEProjectiles = new();
 
+        /// <summary>本帧新生成的穿刺弹射物（闪电，由 BattleLogic 取走）。</summary>
+        public readonly List<PiercingProjectile> PendingPiercingProjectiles = new();
+
         /// <summary>本帧请求创建的召唤物（由 BattleLogic 取走并创建）。</summary>
         public readonly List<SummonRequest> PendingSummons = new();
+
+        /// <summary>本帧请求创建的闪电云（由 BattleLogic 取走并创建）。</summary>
+        public readonly List<LightningCloudRequest> PendingLightningClouds = new();
 
         // ── Buff系统 ──────────────────────────────────────────
         readonly List<Buff> _buffs = new();
@@ -181,6 +188,7 @@ namespace FrameSync
             TurnSpeed    = FixedInt.FromInt(cfg.TurnSpeed);
             Radius       = cfg.CollisionRadius > 0 ? FixedInt.FromFloat(cfg.CollisionRadius) : FixedInt.OneVal;
             _staggerDuration = cfg.StaggerDuration;
+            _resistance = FixedInt.FromInt(cfg.Resistance);
 
             // ── 职业与索敌优先级 ──
             _profession = CharacterConfig.ParseProfession(cfg.Profession);
@@ -711,6 +719,66 @@ namespace FrameSync
                     });
                     break;
                 }
+                case "ChainLightning":
+                {
+                    // 连锁闪电：命中主目标后依次链接到最近的敌人，最多Param2个目标
+                    if (_target == null) break;
+                    int maxChains = _skill2Param2.ToInt(); // 最大连接数（含首个目标）
+                    if (maxChains < 1) maxChains = 3;
+                    FixedInt chainRange = _skill2Param1; // 连接距离上限
+
+                    var hitTargets = new List<BattleFighter>();
+                    hitTargets.Add(_target);
+                    ApplyEffect(_target, _skill2Damage, _skill2Buffs, frame);
+
+                    // 首段链接：施法者→首个目标
+                    _events.Add(new BattleEvent
+                    {
+                        Frame    = frame,
+                        Type     = BattleEventType.ChainLightningLink,
+                        SourceId = PlayerId,
+                        TargetId = _target.PlayerId,
+                    });
+
+                    // 依次找最近的未命中敌人
+                    var current = _target;
+                    for (int c = 1; c < maxChains; c++)
+                    {
+                        BattleFighter nearest = null;
+                        FixedInt nearestDist = chainRange + FixedInt.OneVal;
+
+                        for (int e = 0; e < _allFighters.Count; e++)
+                        {
+                            var f = _allFighters[e];
+                            if (f.TeamId == TeamId || f.IsDead || f.IsStealthed) continue;
+                            bool alreadyHit = false;
+                            for (int h = 0; h < hitTargets.Count; h++)
+                                if (hitTargets[h].PlayerId == f.PlayerId) { alreadyHit = true; break; }
+                            if (alreadyHit) continue;
+
+                            var dist = FixedVector2.Distance(current.Position, f.Position);
+                            if (dist <= chainRange && dist < nearestDist)
+                            {
+                                nearest = f;
+                                nearestDist = dist;
+                            }
+                        }
+                        if (nearest == null) break; // 范围内没有更多敌人
+                        hitTargets.Add(nearest);
+                        ApplyEffect(nearest, _skill2Damage, _skill2Buffs, frame);
+
+                        // 链接事件：上一目标→当前目标
+                        _events.Add(new BattleEvent
+                        {
+                            Frame    = frame,
+                            Type     = BattleEventType.ChainLightningLink,
+                            SourceId = current.PlayerId,
+                            TargetId = nearest.PlayerId,
+                        });
+                        current = nearest;
+                    }
+                    break;
+                }
                 default:
                 {
                     // ── 统一效果施加（Instant等类型）──
@@ -824,6 +892,40 @@ namespace FrameSync
                     Type     = BattleEventType.ProjectileSpawn,
                     SourceId = PlayerId,
                     TargetId = _target.PlayerId,
+                    PosXRaw  = Position.X.Raw,
+                    PosYRaw  = Position.Y.Raw,
+                });
+            }
+            else if (_normalAtkType == "PierceLine")
+            {
+                // 穿刺直线弹射物（闪电）：直线飞行，穿过所有敌人
+                if (_target == null) return;
+                var dir = _target.Position - Position;
+                if (dir.SqrMagnitude == FixedInt.Zero) dir = Facing;
+
+                var proj = new PiercingProjectile();
+                proj.Init(PlayerId, TeamId, Position, dir.Normalized,
+                          _normalAtkProjectileSpeed, effectiveDmg, AtkRange,
+                          FixedInt.FromFloat(0.5f),
+                          _normalAtkBuffs, _allFighters, this);
+                PendingPiercingProjectiles.Add(proj);
+
+                _events.Add(new BattleEvent
+                {
+                    Frame    = frame,
+                    Type     = BattleEventType.NormalAttack,
+                    SourceId = PlayerId,
+                    TargetId = _target.PlayerId,
+                    IntParam = effectiveDmg.ToInt(),
+                });
+
+                _events.Add(new BattleEvent
+                {
+                    Frame    = frame,
+                    Type     = BattleEventType.ProjectileSpawn,
+                    SourceId = PlayerId,
+                    TargetId = _target.PlayerId,
+                    IntParam = 3, // 穿刺弹射物标记
                     PosXRaw  = Position.X.Raw,
                     PosYRaw  = Position.Y.Raw,
                 });
@@ -955,6 +1057,22 @@ namespace FrameSync
                     });
                     break;
                 }
+                case "AoEZone":
+                {
+                    // 在目标位置创建持久性AoE区域（闪电云等）
+                    var zonePos = _target != null ? _target.Position : Position;
+                    PendingLightningClouds.Add(new LightningCloudRequest
+                    {
+                        SourceId     = PlayerId,
+                        TeamId       = TeamId,
+                        Position     = zonePos,
+                        Radius       = _ultParam1,                    // Param1=半径
+                        Damage       = UltDamage,
+                        TickInterval = _ultParam2,                    // Param2=伤害间隔帧数
+                        Lifetime     = SkillConfigLoader.Get(CharacterConfig.Get(CharType).Ultimate)?.Param3 ?? 60,
+                    });
+                    break;
+                }
             }
 
             // 大招释放事件
@@ -969,8 +1087,8 @@ namespace FrameSync
                 PosYRaw  = Position.Y.Raw,
             });
 
-            // Stealth/SummonPet 不造成伤害/治疗
-            if (_ultType == "Stealth" || _ultType == "SummonPet") return;
+            // Stealth/SummonPet/AoEZone 不走统一伤害路径
+            if (_ultType == "Stealth" || _ultType == "SummonPet" || _ultType == "AoEZone") return;
 
             // ── 统一效果施加：根据 TargetTeam/TargetScope 选择目标，Damage正负决定伤害/治疗 ──
             var targets = SelectTargets(_ultTargetAlly, _ultTargetAll, false, _ultTargetRandomCount);
@@ -991,6 +1109,9 @@ namespace FrameSync
                 }
                 return;
             }
+
+            // ── 抗性减伤 ──
+            damage = target.ApplyResistance(damage);
 
             // ── DefUp减伤 ──
             if (target._defReduction > FixedInt.Zero)
@@ -1144,6 +1265,20 @@ namespace FrameSync
         /// <summary>当前减伤比例（DefUp buff累计值），在ApplyDamage中使用。</summary>
         FixedInt _defReduction;
 
+        /// <summary>
+        /// 抗性减伤。所有伤害源在扣血前调用此方法。
+        /// resistance=50 → 受50%伤害, >=100 → 免疫, 0 → 全额, -100 → 200%伤害。
+        /// </summary>
+        public FixedInt ApplyResistance(FixedInt damage)
+        {
+            if (damage <= FixedInt.Zero) return damage; // 治疗不受抗性影响
+            if (_resistance >= FixedInt.FromInt(100)) return FixedInt.Zero; // 完全免疫
+            var multiplier = FixedInt.FromInt(100) - _resistance; // (100 - resistance)
+            damage = damage * multiplier / FixedInt.FromInt(100);
+            if (damage < FixedInt.OneVal) damage = FixedInt.OneVal; // 至少1点伤害
+            return damage;
+        }
+
         /// <summary>移除指定类型的buff。</summary>
         void RemoveBuff(BuffType type)
         {
@@ -1279,6 +1414,39 @@ namespace FrameSync
                     if (IsFleeing) return false; // 正在逃跑中不重复触发
                     IsFleeing = true;
                     _fleeStartPos = Position;
+                    return true;
+                }
+                case "ReactLightning":
+                {
+                    // 受击后有概率发射穿刺闪电反击
+                    if (_bt == null || _passiveParam1.ToInt() <= 0) return false;
+                    int roll = _bt.Context.Random.Next(100);
+                    if (roll >= _passiveParam1.ToInt()) return false;
+
+                    // 向攻击者方向发射穿刺弹射物（使用普攻参数）
+                    var atkSkill = SkillConfigLoader.Get(CharacterConfig.Get(CharType).NormalAttack);
+                    if (atkSkill == null) return false;
+                    var dir = new FixedVector2(FixedInt.FromRaw(damageSourcePos.X.Raw) - Position.X,
+                                               FixedInt.FromRaw(damageSourcePos.Y.Raw) - Position.Y);
+                    if (dir.SqrMagnitude == FixedInt.Zero) dir = Facing;
+
+                    var proj = new PiercingProjectile();
+                    proj.Init(PlayerId, TeamId, Position, dir.Normalized,
+                              FixedInt.FromInt(atkSkill.Param1), AtkDamage, AtkRange,
+                              FixedInt.FromFloat(0.5f),
+                              _normalAtkBuffs, _allFighters, this);
+                    PendingPiercingProjectiles.Add(proj);
+
+                    events.Add(new BattleEvent
+                    {
+                        Frame    = frame,
+                        Type     = BattleEventType.ProjectileSpawn,
+                        SourceId = PlayerId,
+                        TargetId = sourceId,
+                        IntParam = 3, // 穿刺弹射物标记
+                        PosXRaw  = Position.X.Raw,
+                        PosYRaw  = Position.Y.Raw,
+                    });
                     return true;
                 }
                 default:

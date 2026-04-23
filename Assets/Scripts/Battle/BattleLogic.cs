@@ -63,6 +63,8 @@ namespace FrameSync
         List<BattleFighter> _fighters;
         readonly List<Projectile> _projectiles = new();
         readonly List<AoEProjectile> _aoeProjectiles = new();
+        readonly List<PiercingProjectile> _piercingProjectiles = new();
+        readonly List<LightningCloud> _lightningClouds = new();
         byte _nextFighterId;
         int _teamSize;
 
@@ -129,6 +131,8 @@ namespace FrameSync
                     pick = CharacterType.Witch;
                 if (Input.GetKeyDown(KeyCode.Alpha7) || Input.GetKeyDown(KeyCode.Keypad7))
                     pick = CharacterType.Barbarian;
+                if (Input.GetKeyDown(KeyCode.Alpha8) || Input.GetKeyDown(KeyCode.Keypad8))
+                    pick = CharacterType.LightningMage;
                 if (pick != CharacterType.None)
                     mx = (int)pick;
             }
@@ -154,7 +158,7 @@ namespace FrameSync
                 if (_selections[pid].Count >= _teamSize) continue;
 
                 if (input.MoveX >= (int)CharacterType.Warrior &&
-                    input.MoveX <= (int)CharacterType.Barbarian)
+                    input.MoveX <= (int)CharacterType.LightningMage)
                 {
                     var charType = (CharacterType)input.MoveX;
                     _selections[pid].Add(charType);
@@ -282,6 +286,11 @@ namespace FrameSync
                     _aoeProjectiles.AddRange(_fighters[i].PendingAoEProjectiles);
                     _fighters[i].PendingAoEProjectiles.Clear();
                 }
+                if (_fighters[i].PendingPiercingProjectiles.Count > 0)
+                {
+                    _piercingProjectiles.AddRange(_fighters[i].PendingPiercingProjectiles);
+                    _fighters[i].PendingPiercingProjectiles.Clear();
+                }
             }
 
             // 2.5b 处理召唤请求
@@ -292,6 +301,27 @@ namespace FrameSync
                     foreach (var req in _fighters[i].PendingSummons)
                         CreateSummon(_fighters[i], req, frame.FrameId);
                     _fighters[i].PendingSummons.Clear();
+                }
+                if (_fighters[i].PendingLightningClouds.Count > 0)
+                {
+                    foreach (var req in _fighters[i].PendingLightningClouds)
+                    {
+                        var cloud = new LightningCloud();
+                        cloud.Init(req, _fighters, _fighters[i]);
+                        _lightningClouds.Add(cloud);
+
+                        // 显示层事件：闪电云生成
+                        EventQueue.Add(new BattleEvent
+                        {
+                            Frame    = frame.FrameId,
+                            Type     = BattleEventType.LightningCloudSpawn,
+                            SourceId = req.SourceId,
+                            PosXRaw  = req.Position.X.Raw,
+                            PosYRaw  = req.Position.Y.Raw,
+                            IntParam = req.Lifetime, // 存活帧数，用于显示层计时
+                        });
+                    }
+                    _fighters[i].PendingLightningClouds.Clear();
                 }
             }
 
@@ -307,6 +337,20 @@ namespace FrameSync
             {
                 if (_aoeProjectiles[p].Tick(TickInterval, frame.FrameId, EventQueue))
                     _aoeProjectiles.RemoveAt(p);
+            }
+
+            // 2.6c 驱动穿刺弹射物飞行
+            for (int p = _piercingProjectiles.Count - 1; p >= 0; p--)
+            {
+                if (_piercingProjectiles[p].Tick(TickInterval, frame.FrameId, EventQueue))
+                    _piercingProjectiles.RemoveAt(p);
+            }
+
+            // 2.6d 驱动闪电云
+            for (int p = _lightningClouds.Count - 1; p >= 0; p--)
+            {
+                if (_lightningClouds[p].Tick(frame.FrameId, EventQueue))
+                    _lightningClouds.RemoveAt(p);
             }
 
             // 2.7 碰撞分离
