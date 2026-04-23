@@ -38,6 +38,9 @@ public class BattleView : MonoBehaviour
         public bool IsStunned;
         public bool IsStealthed;
         public bool IsSlowed;
+        public bool IsStaggered;
+        public bool IsAtkBuffed;
+        public bool IsAtkDebuffed;
 
         // 渲染对象
         public GameObject Go;
@@ -211,6 +214,13 @@ public class BattleView : MonoBehaviour
             if (vf.IsStunned && vf.HeadSR != null)
             {
                 vf.HeadSR.color = Color.Lerp(Color.gray, Color.white, Mathf.PingPong(Time.time * 3f, 1f) * 0.3f);
+            }
+
+            // 僵直时闪烁红白
+            if (vf.IsStaggered && !vf.IsStunned && vf.HeadSR != null)
+            {
+                float t = Mathf.PingPong(Time.time * 8f, 1f);
+                vf.HeadSR.color = Color.Lerp(vf.BaseColor, new Color(1f, 0.2f, 0.2f), t * 0.6f);
             }
 
             // 隐身时闪烁半透明
@@ -456,9 +466,12 @@ public class BattleView : MonoBehaviour
         vf.IsStunned    = (evt.IntParam & 16) != 0;
         vf.IsStealthed  = (evt.IntParam & 32) != 0;
         vf.IsSlowed     = (evt.IntParam & 64) != 0;
+        vf.IsStaggered  = (evt.IntParam & 128) != 0;
+        vf.IsAtkBuffed  = (evt.IntParam & 256) != 0;
+        vf.IsAtkDebuffed = (evt.IntParam & 512) != 0;
 
         // 非特殊状态恢复原色
-        if (!vf.IsFleeing && !vf.IsStunned && !vf.IsStealthed && !vf.IsSlowed && vf.HeadSR != null && !vf.IsDead)
+        if (!vf.IsFleeing && !vf.IsStunned && !vf.IsStealthed && !vf.IsSlowed && !vf.IsStaggered && vf.HeadSR != null && !vf.IsDead)
             vf.HeadSR.color = vf.BaseColor;
     }
 
@@ -751,7 +764,7 @@ public class BattleView : MonoBehaviour
         int teamSize = FrameSync.CharacterConfig.TeamSize;
         GUILayout.Label($"<b>══ 选择角色 (每队{teamSize}个) ══</b>", _headerStyle);
 
-        var types = new[] { FrameSync.CharacterType.Warrior, FrameSync.CharacterType.Archer, FrameSync.CharacterType.Assassin, FrameSync.CharacterType.Mage, FrameSync.CharacterType.Healer };
+        var types = new[] { FrameSync.CharacterType.Warrior, FrameSync.CharacterType.Archer, FrameSync.CharacterType.Assassin, FrameSync.CharacterType.Mage, FrameSync.CharacterType.Healer, FrameSync.CharacterType.Witch, FrameSync.CharacterType.Barbarian };
         for (int k = 0; k < types.Length; k++)
         {
             var ct = types[k];
@@ -815,6 +828,7 @@ public class BattleView : MonoBehaviour
 
                 string state;
                 if (vf.IsDead)                        state = "<color=gray>阵亡</color>";
+                else if (vf.IsStaggered)              state = "<color=#ff6666>★僵直★</color>";
                 else if (vf.IsStunned)                state = "<color=#888888>★眩晕★</color>";
                 else if (vf.IsStealthed)              state = "<color=#aa66ff>★隐身★</color>";
                 else if (vf.IsCasting && vf.IsCastingUlt) state = "<color=yellow>★大招施法中★</color>";
@@ -845,7 +859,10 @@ public class BattleView : MonoBehaviour
                     _richLabel);
                 string buffStr = "";
                 if (vf.IsStunned) buffStr += " <color=#ff4444>[眩晕]</color>";
+                if (vf.IsStaggered) buffStr += " <color=#ff6666>[僵直]</color>";
                 if (vf.IsSlowed)  buffStr += " <color=#6688ff>[减速]</color>";
+                if (vf.IsAtkBuffed) buffStr += " <color=#44ff44>[增益]</color>";
+                if (vf.IsAtkDebuffed) buffStr += " <color=#ff8844>[减益]</color>";
                 string passiveStr = !string.IsNullOrEmpty(vf.PassiveName) ? $" 被动:{vf.PassiveName}" : "";
                 GUILayout.Label(
                     $"      普攻:{atkCDStr} 大招:{ultCDStr} {skill2Name}:{sk2CDStr}{passiveStr}{buffStr}",

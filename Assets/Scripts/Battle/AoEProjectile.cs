@@ -137,7 +137,11 @@ namespace FrameSync
 
                 // 攻击者被动触发（吸血/大招CD减少等）— 召唤物不触发主人被动
                 if (_sourceFighter != null && !_sourceFighter.IsSummon)
-                    _sourceFighter.OnDealDamage(Damage, frame, events);
+                    _sourceFighter.OnDealDamage(Damage, f, frame, events);
+
+                // 打断判定：普攻前摇或移动中被伤害可能触发僵直
+                if (!f.IsDead)
+                    f.TryInterrupt();
 
                 // 应用配置的buff（减速、眩晕等）
                 if (HitBuffs != null && !f.IsDead)

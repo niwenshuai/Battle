@@ -31,8 +31,12 @@ namespace FrameSync
 
         public FixedInt AtkRange;
         public FixedInt AtkDamage;
-        public int      AtkCooldown;      // 冷却总帧数
+        public FixedInt BaseAtkDamage;    // 不受buff影响的基础攻击力
+        public int      AtkCooldown;      // 冷却总帧数（受攻速buff影响）
         public int      AtkCooldownLeft;  // 剩余冷却帧数
+        int _baseAtkCooldown;             // 配置基础CD
+        int _baseAtkWindup;               // 配置基础前摇
+        int _baseAtkRecovery;             // 配置基础后摇
 
         // ── 大招（由技能配置填充）─────────────────────────────
 
@@ -49,6 +53,9 @@ namespace FrameSync
         public bool UltRequested;
         public bool IsStunned;
         public bool IsStealthed;
+        public bool IsStaggered;  // 被打断僵直中
+        public bool IsAtkBuffed;  // 有增益性战斗buff（攻击力提升/攻速提升/减伤）
+        public bool IsAtkDebuffed; // 有减益性战斗buff（攻速降低）
 
         // ── 内部引用 ─────────────────────────────────────────
 
@@ -63,9 +70,10 @@ namespace FrameSync
 
         // ── 被动技能 ────────────────────────────────────────
 
-        string _passiveType;          // 被动技能类型（FleeOnHit/CritStrike/DodgeBlock/UltCDReduce/Lifesteal）
+        string _passiveType;          // 被动技能类型（FleeOnHit/CritStrike/DodgeBlock/UltCDReduce/Lifesteal/OnHitDebuff）
         FixedInt _passiveParam1;      // 被动参数1
         int _passiveParam2;           // 被动参数2（整数，概率/倍率/帧数等）
+        BuffTemplate[] _passiveBuffs; // OnHitDebuff被动附加的buff列表
         int _prevAtkCD;
         int _prevUltCD;
         bool _cdTotalsEmitted;
@@ -104,13 +112,19 @@ namespace FrameSync
         bool _skill2TargetAlly;      // true=作用友方, false=作用敌方
         bool _skill2TargetAll;       // true=全体, false=单体
         bool _skill2TargetLowestHp;  // true=血量最低优先
+        bool _skill2IsGapCloser;     // true=突进类技能(Blink)，远距离使用
+        bool _skill2IsReactive;      // true=被动反应式技能(ReactBlink)，不在行为树中触发
+        int _skill2TargetRandomCount; // >0时随机选N个目标
         int _prevSkill2CD;
         FixedInt _ultParam1;         // 大招参数1
         int _ultParam2;              // 大招参数2（召唤物HP等）
         BuffTemplate[] _ultBuffs;    // 大招附加的buff列表
         bool _ultTargetAlly;         // true=作用友方, false=作用敌方
         bool _ultTargetAll;          // true=全体, false=单体
+        int _ultTargetRandomCount;   // >0时随机选N个目标
         int _stealthFramesLeft;
+        int _staggerDuration;     // 本角色僵直帧数（配置值）
+        int _staggerFramesLeft;   // 当前僵直剩余帧数
 
         /// <summary>本帧新生成的弹射物（由 BattleLogic 取走并管理）。</summary>
         public readonly List<Projectile> PendingProjectiles = new();
@@ -140,6 +154,9 @@ namespace FrameSync
         public const int StateBit_Stunned   = 1 << 4;
         public const int StateBit_Stealthed = 1 << 5;
         public const int StateBit_Slowed    = 1 << 6;
+        public const int StateBit_Staggered  = 1 << 7;
+        public const int StateBit_AtkBuffed   = 1 << 8;
+        public const int StateBit_AtkDebuffed = 1 << 9;
 
         // ── 场地边界与朝向阈值 ────────────────────────────────
         static FixedInt ArenaHalf => FixedInt.FromInt(CharacterConfig.ArenaHalf);
@@ -163,6 +180,7 @@ namespace FrameSync
             MoveSpeed    = BaseMoveSpeed;
             TurnSpeed    = FixedInt.FromInt(cfg.TurnSpeed);
             Radius       = cfg.CollisionRadius > 0 ? FixedInt.FromFloat(cfg.CollisionRadius) : FixedInt.OneVal;
+            _staggerDuration = cfg.StaggerDuration;
 
             // ── 职业与索敌优先级 ──
             _profession = CharacterConfig.ParseProfession(cfg.Profession);
@@ -176,6 +194,7 @@ namespace FrameSync
                 _passiveParam1   = FixedInt.FromInt(passive.Param1);
                 _passiveParam2   = passive.Param2;
                 _fleeDistance     = _passiveType == "FleeOnHit" ? _passiveParam1 : FixedInt.Zero;
+                _passiveBuffs    = BuffTemplate.FromConfigs(passive.Buffs);
             }
 
             // ── 普攻技能 ──
@@ -183,11 +202,15 @@ namespace FrameSync
             if (atkSkill != null)
             {
                 _normalAtkType = atkSkill.Type;
-                AtkDamage    = FixedInt.FromInt(atkSkill.Damage);
+                BaseAtkDamage = FixedInt.FromInt(atkSkill.Damage);
+                AtkDamage    = BaseAtkDamage;
                 AtkRange     = FixedInt.FromInt(atkSkill.Range);
-                AtkCooldown  = atkSkill.Cooldown;
-                _atkWindup   = atkSkill.Windup;
-                _atkRecovery = atkSkill.Recovery;
+                _baseAtkCooldown = atkSkill.Cooldown;
+                _baseAtkWindup   = atkSkill.Windup;
+                _baseAtkRecovery = atkSkill.Recovery;
+                AtkCooldown  = _baseAtkCooldown;
+                _atkWindup   = _baseAtkWindup;
+                _atkRecovery = _baseAtkRecovery;
                 _normalAtkProjectileSpeed = FixedInt.FromInt(atkSkill.Param1);
                 _normalAtkConeAngle = (_normalAtkType == "MeleeAttack") ? atkSkill.Param1 : 0;
                 _normalAtkParam2 = atkSkill.Param2;
@@ -207,6 +230,11 @@ namespace FrameSync
                 _skill2TargetAlly = sk2.TargetTeam == "Ally";
                 _skill2TargetAll  = sk2.TargetScope == "All";
                 _skill2TargetLowestHp = sk2.TargetScope == "LowestHp";
+                _skill2TargetRandomCount = 0;
+                if (sk2.TargetScope != null && sk2.TargetScope.StartsWith("Random"))
+                    int.TryParse(sk2.TargetScope.Substring(6), out _skill2TargetRandomCount);
+                _skill2IsGapCloser = _skill2Type == "Blink";
+                _skill2IsReactive  = _skill2Type == "ReactBlink";
             }
 
             // ── 大招技能 ──
@@ -223,6 +251,9 @@ namespace FrameSync
                 _ultBuffs    = BuffTemplate.FromConfigs(ult.Buffs);
                 _ultTargetAlly = ult.TargetTeam == "Ally";
                 _ultTargetAll  = ult.TargetScope == "All";
+                _ultTargetRandomCount = 0;
+                if (ult.TargetScope != null && ult.TargetScope.StartsWith("Random"))
+                    int.TryParse(ult.TargetScope.Substring(6), out _ultTargetRandomCount);
             }
 
             Hp = MaxHp;
@@ -234,6 +265,8 @@ namespace FrameSync
             IsCasting = false;
             IsStunned = false;
             IsStealthed = false;
+            IsStaggered = false;
+            _staggerFramesLeft = 0;
             _stealthFramesLeft = 0;
             Facing = teamId == 1 ? FixedVector2.Right : FixedVector2.Left;
         }
@@ -389,6 +422,14 @@ namespace FrameSync
                     IsStealthed = false;
             }
 
+            // 僵直计时
+            if (_staggerFramesLeft > 0)
+            {
+                _staggerFramesLeft--;
+                if (_staggerFramesLeft <= 0)
+                    IsStaggered = false;
+            }
+
             // ── 大招立即打断：玩家按键 + CD好 → 无视一切状态直接施放 ──
             if (UltRequested && UltCooldownLeft <= 0 && _ultType != null)
             {
@@ -397,10 +438,18 @@ namespace FrameSync
                 IsMoving  = false;
                 IsFleeing = false;
                 IsStunned = false;
+                IsStaggered = false;
+                _staggerFramesLeft = 0;
                 RemoveBuff(BuffType.Stun);
                 _bt.ResetTree();
                 BeginCast(true);
                 // 跳过行为树，直接进入施法
+            }
+            // ── 僵直中：不执行行为树，不施法 ──
+            else if (IsStaggered)
+            {
+                IsMoving = false;
+                // 什么都不做，等待僵直结束
             }
             // ── 眩晕中：不执行行为树，不施法 ──
             else if (IsStunned)
@@ -465,7 +514,10 @@ namespace FrameSync
                          | (IsCasting && _castIsUlt ? StateBit_CastUlt : 0)
                          | (IsStunned ? StateBit_Stunned : 0)
                          | (IsStealthed ? StateBit_Stealthed : 0)
-                         | (IsSlowed ? StateBit_Slowed : 0);
+                         | (IsSlowed ? StateBit_Slowed : 0)
+                         | (IsStaggered ? StateBit_Staggered : 0)
+                         | (IsAtkBuffed ? StateBit_AtkBuffed : 0)
+                         | (IsAtkDebuffed ? StateBit_AtkDebuffed : 0);
             if (curState != _prevStateBits)
             {
                 _events.Add(new BattleEvent
@@ -562,10 +614,30 @@ namespace FrameSync
                 case "UltRequested":       return UltRequested;
                 case "FacingTarget":       return _target != null && IsFacingTarget(_target.Position);
                 case "AllyNeedsHeal":      return _skill2TargetAlly && FindHealTarget() != null;
+                case "Skill2Ready":        return EvalSkill2Ready();
                 default:
                     UnityEngine.Debug.LogError($"[BT] Unknown condition: {name}");
                     return false;
             }
+        }
+
+        /// <summary>
+        /// 复合条件：副技能是否可以释放。
+        /// 综合判断CD、技能类型和使用时机：
+        ///   - 无副技能 / 被动反应式(ReactBlink) → false
+        ///   - 治疗类(TargetAlly) → 队友需要治疗
+        ///   - 突进类(Blink) → 敌人在攻击范围外
+        ///   - 其他战斗技能 → 站定 + 敌人在攻击范围内 + 朝向正确
+        /// </summary>
+        bool EvalSkill2Ready()
+        {
+            if (Skill2CooldownLeft > 0) return false;
+            if (_skill2Type == null) return false;
+            if (_skill2IsReactive) return false;
+            if (_skill2TargetAlly) return FindHealTarget() != null;
+            if (_skill2IsGapCloser) return EffectiveEnemyDist() > AtkRange;
+            return !IsMoving && EffectiveEnemyDist() <= AtkRange
+                && _target != null && IsFacingTarget(_target.Position);
         }
 
         BTNode ResolveAction(string name)
@@ -642,7 +714,7 @@ namespace FrameSync
                 default:
                 {
                     // ── 统一效果施加（Instant等类型）──
-                    var targets = SelectTargets(_skill2TargetAlly, _skill2TargetAll, _skill2TargetLowestHp);
+                    var targets = SelectTargets(_skill2TargetAlly, _skill2TargetAll, _skill2TargetLowestHp, _skill2TargetRandomCount);
                     for (int i = 0; i < targets.Count; i++)
                         ApplyEffect(targets[i], _skill2Damage, _skill2Buffs, frame);
                     break;
@@ -650,7 +722,7 @@ namespace FrameSync
             }
 
             // 技能释放事件
-            var targets2 = SelectTargets(_skill2TargetAlly, _skill2TargetAll, _skill2TargetLowestHp);
+            var targets2 = SelectTargets(_skill2TargetAlly, _skill2TargetAll, _skill2TargetLowestHp, _skill2TargetRandomCount);
             byte sk2TargetId = targets2.Count > 0 ? targets2[0].PlayerId
                              : (_target != null ? _target.PlayerId : (byte)0);
             _events.Add(new BattleEvent
@@ -743,7 +815,7 @@ namespace FrameSync
 
                 var proj = new Projectile();
                 proj.Init(PlayerId, _target, Position, _normalAtkProjectileSpeed, effectiveDmg,
-                          sourceFighter: this);
+                          sourceFighter: this, hitBuffs: _normalAtkBuffs);
                 PendingProjectiles.Add(proj);
 
                 _events.Add(new BattleEvent
@@ -901,7 +973,7 @@ namespace FrameSync
             if (_ultType == "Stealth" || _ultType == "SummonPet") return;
 
             // ── 统一效果施加：根据 TargetTeam/TargetScope 选择目标，Damage正负决定伤害/治疗 ──
-            var targets = SelectTargets(_ultTargetAlly, _ultTargetAll, false);
+            var targets = SelectTargets(_ultTargetAlly, _ultTargetAll, false, _ultTargetRandomCount);
             for (int i = 0; i < targets.Count; i++)
                 ApplyEffect(targets[i], UltDamage, _ultBuffs, frame);
         }
@@ -918,6 +990,13 @@ namespace FrameSync
                     target.TryPassive(Position, PlayerId, frame, _events);
                 }
                 return;
+            }
+
+            // ── DefUp减伤 ──
+            if (target._defReduction > FixedInt.Zero)
+            {
+                damage = damage * (FixedInt.OneVal - target._defReduction);
+                if (damage < FixedInt.OneVal) damage = FixedInt.OneVal; // 至少1点伤害
             }
 
             target.Hp = target.Hp - damage;
@@ -942,7 +1021,11 @@ namespace FrameSync
             });
 
             // ── 攻击者被动：造成伤害后触发 ──
-            OnDealDamage(damage, frame, _events);
+            OnDealDamage(damage, target, frame, _events);
+
+            // ── 打断判定：普攻前摇或移动中被伤害可能触发僵直 ──
+            if (!target.IsDead)
+                target.TryInterrupt();
 
             // 被击后触发反应式副技能（ReactBlink等）+ 被动技能（FleeOnHit等）
             if (!target.IsDead)
@@ -986,8 +1069,15 @@ namespace FrameSync
         void TickBuffs()
         {
             MoveSpeed = BaseMoveSpeed;
+            AtkDamage = BaseAtkDamage;
+            AtkCooldown = _baseAtkCooldown;
+            _atkWindup = _baseAtkWindup;
+            _atkRecovery = _baseAtkRecovery;
             IsSlowed = false;
             IsStunned = false;
+            IsAtkBuffed = false;
+            IsAtkDebuffed = false;
+            FixedInt defMultiplier = FixedInt.Zero; // 减伤比例累计
             for (int i = _buffs.Count - 1; i >= 0; i--)
             {
                 var b = _buffs[i];
@@ -1007,9 +1097,52 @@ namespace FrameSync
                     case BuffType.Stun:
                         IsStunned = true;
                         break;
+                    case BuffType.AtkUp:
+                        // Value=0.3 → 攻击力提升30%（乘以1.3）
+                        AtkDamage = AtkDamage + BaseAtkDamage * b.Value;
+                        IsAtkBuffed = true;
+                        break;
+                    case BuffType.DefUp:
+                        // Value=0.3 → 减少30%受到的伤害（在ApplyDamage中使用）
+                        defMultiplier = defMultiplier + b.Value;
+                        IsAtkBuffed = true;
+                        break;
+                    case BuffType.AtkSpeedUp:
+                    {
+                        // Value=0.3 → CD/前摇/后摇缩短30%（乘以0.7）
+                        var factor = FixedInt.OneVal - b.Value;
+                        if (factor < FixedInt.FromFloat(0.1f)) factor = FixedInt.FromFloat(0.1f); // 下限10%
+                        AtkCooldown = (FixedInt.FromInt(AtkCooldown) * factor).ToInt();
+                        _atkWindup  = (FixedInt.FromInt(_atkWindup)  * factor).ToInt();
+                        _atkRecovery = (FixedInt.FromInt(_atkRecovery) * factor).ToInt();
+                        if (AtkCooldown < 1) AtkCooldown = 1;
+                        if (_atkWindup < 0) _atkWindup = 0;
+                        IsAtkBuffed = true;
+                        break;
+                    }
+                    case BuffType.AtkSpeedDown:
+                    {
+                        // Value=0.3 → CD/前摇/后摇增加30%（乘以1.3）
+                        var factor = FixedInt.OneVal + b.Value;
+                        AtkCooldown = (FixedInt.FromInt(AtkCooldown) * factor).ToInt();
+                        _atkWindup  = (FixedInt.FromInt(_atkWindup)  * factor).ToInt();
+                        _atkRecovery = (FixedInt.FromInt(_atkRecovery) * factor).ToInt();
+                        IsAtkDebuffed = true;
+                        break;
+                    }
+                    case BuffType.AtkDown:
+                        // Value=0.3 → 攻击力降低30%（减去BaseAtkDamage*Value）
+                        AtkDamage = AtkDamage - BaseAtkDamage * b.Value;
+                        if (AtkDamage < FixedInt.OneVal) AtkDamage = FixedInt.OneVal; // 至少1点攻击力
+                        IsAtkDebuffed = true;
+                        break;
                 }
             }
+            _defReduction = defMultiplier;
         }
+
+        /// <summary>当前减伤比例（DefUp buff累计值），在ApplyDamage中使用。</summary>
+        FixedInt _defReduction;
 
         /// <summary>移除指定类型的buff。</summary>
         void RemoveBuff(BuffType type)
@@ -1034,6 +1167,7 @@ namespace FrameSync
                     FramesLeft = bt.Duration,
                     Value      = bt.Value,
                     SourceId   = PlayerId,
+                    IsDebuff   = bt.IsDebuff,
                 });
                 _events.Add(new BattleEvent
                 {
@@ -1041,7 +1175,7 @@ namespace FrameSync
                     Type     = BattleEventType.BuffApplied,
                     SourceId = PlayerId,
                     TargetId = target.PlayerId,
-                    IntParam = ((int)bt.Type << 16) | bt.Duration,
+                    IntParam = ((int)bt.Type << 16) | (bt.IsDebuff ? (1 << 15) : 0) | bt.Duration,
                 });
             }
         }
@@ -1051,7 +1185,7 @@ namespace FrameSync
         // ═══════════════════════════════════════════════════════
 
         /// <summary>根据配置选择技能目标。</summary>
-        List<BattleFighter> SelectTargets(bool targetAlly, bool targetAll, bool targetLowestHp)
+        List<BattleFighter> SelectTargets(bool targetAlly, bool targetAll, bool targetLowestHp, int randomCount = 0)
         {
             var result = new List<BattleFighter>();
             if (targetAlly)
@@ -1074,6 +1208,20 @@ namespace FrameSync
             {
                 if (targetAll)
                     result = GetAliveEnemies();
+                else if (randomCount > 0)
+                {
+                    result = GetAliveEnemies();
+                    if (result.Count > randomCount)
+                    {
+                        // Fisher-Yates部分洗牌取前N个
+                        for (int i = 0; i < randomCount; i++)
+                        {
+                            int j = i + _bt.Context.Random.Next(result.Count - i);
+                            var tmp = result[i]; result[i] = result[j]; result[j] = tmp;
+                        }
+                        result.RemoveRange(randomCount, result.Count - randomCount);
+                    }
+                }
                 else if (_target != null)
                     result.Add(_target);
             }
@@ -1147,8 +1295,39 @@ namespace FrameSync
             return roll < _passiveParam1.ToInt();
         }
 
-        /// <summary>造成伤害后触发攻击者被动（UltCDReduce/Lifesteal），召唤物不触发。</summary>
-        public void OnDealDamage(FixedInt damage, int frame, List<BattleEvent> events)
+        /// <summary>
+        /// 打断判定：普攻前摇中或移动中受伤时有概率触发僵直。
+        /// 副技能/大招施法中不会被打断。僵直期间角色无法行动。
+        /// </summary>
+        public void TryInterrupt()
+        {
+            if (_staggerDuration <= 0) return;       // 该角色不可被打断（配置为0）
+            if (IsStaggered || IsStunned) return;    // 已在控制状态
+            if (_bt == null) return;
+
+            // 判定是否处于可打断状态：普攻前摇 或 移动中
+            bool inNormalAtkWindup = IsCasting && !_castIsRecovery && !_castIsUlt;
+            bool canInterrupt = inNormalAtkWindup || (IsMoving && !IsCasting);
+            if (!canInterrupt) return;
+
+            int chance = CharacterConfig.InterruptChance;
+            if (chance <= 0) return;
+            int roll = _bt.Context.Random.Next(100);
+            if (roll >= chance) return;
+
+            // 打断成功 → 进入僵直
+            _staggerFramesLeft = _staggerDuration;
+            IsStaggered = true;
+
+            // 取消当前动作
+            if (IsCasting) { IsCasting = false; _castFramesLeft = 0; }
+            IsMoving = false;
+            IsFleeing = false;
+            _bt.ResetTree();
+        }
+
+        /// <summary>造成伤害后触发攻击者被动（UltCDReduce/Lifesteal/OnHitDebuff），召唤物不触发。</summary>
+        public void OnDealDamage(FixedInt damage, BattleFighter target, int frame, List<BattleEvent> events)
         {
             if (_bt == null || IsSummon) return;
             if (string.IsNullOrEmpty(_passiveType)) return;
@@ -1191,6 +1370,11 @@ namespace FrameSync
                         });
                     }
                 }
+            }
+            // OnHitDebuff：普攻命中后对目标施加被动buff（降低攻速等）
+            if (_passiveType == "OnHitDebuff" && _passiveBuffs != null && target != null && !target.IsDead)
+            {
+                ApplyBuffsToTarget(target, _passiveBuffs, frame);
             }
         }
 
@@ -1322,8 +1506,19 @@ namespace FrameSync
             }
 
             IsMoving = true;
+            var prevPos = Position;
             Position = Position + Facing * MoveSpeed * dt;
             ClampToArena();
+
+            // 被场地边界卡住（位置几乎没变）时提前结束逃跑
+            var moved = (Position - prevPos).SqrMagnitude;
+            if (moved < FixedInt.FromRaw(42949672L)) // ~0.01^2 容差
+            {
+                IsFleeing = false;
+                IsMoving = false;
+                return BTStatus.Success;
+            }
+
             return BTStatus.Running;
         }
 

@@ -125,6 +125,10 @@ namespace FrameSync
                     pick = CharacterType.Mage;
                 if (Input.GetKeyDown(KeyCode.Alpha5) || Input.GetKeyDown(KeyCode.Keypad5))
                     pick = CharacterType.Healer;
+                if (Input.GetKeyDown(KeyCode.Alpha6) || Input.GetKeyDown(KeyCode.Keypad6))
+                    pick = CharacterType.Witch;
+                if (Input.GetKeyDown(KeyCode.Alpha7) || Input.GetKeyDown(KeyCode.Keypad7))
+                    pick = CharacterType.Barbarian;
                 if (pick != CharacterType.None)
                     mx = (int)pick;
             }
@@ -150,7 +154,7 @@ namespace FrameSync
                 if (_selections[pid].Count >= _teamSize) continue;
 
                 if (input.MoveX >= (int)CharacterType.Warrior &&
-                    input.MoveX <= (int)CharacterType.Healer)
+                    input.MoveX <= (int)CharacterType.Barbarian)
                 {
                     var charType = (CharacterType)input.MoveX;
                     _selections[pid].Add(charType);

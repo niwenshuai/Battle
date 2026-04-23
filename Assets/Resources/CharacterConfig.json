@@ -2,20 +2,15 @@
   "_说明": "角色+技能配置 — 帧数单位基于15Hz（1秒=15帧）。角色引用技能ID，技能独立定义。",
 
   "ArenaHalf": 10,
-  "TeamSize": 10,
+  "TeamSize": 2,
   "_TeamSize说明": "每方角色数量，双方各选TeamSize个角色",
+
+  "InterruptChance": 25,
+  "_InterruptChance说明": "打断触发概率（百分比），普攻前摇或移动中受伤时的打断几率",
 
   "Formation": [
     {"X": -8, "Y": 0},
-    {"X": -8, "Y": -1},
-    {"X": -8, "Y": -2},
-    {"X": -8, "Y": -3},
-    {"X": -8, "Y": -4},
-    {"X": -8, "Y": -5},
-    {"X": -8, "Y": -6},
-    {"X": -8, "Y": -7},
-    {"X": -8, "Y": -8},
-    {"X": -8, "Y": -9}
+    {"X": -8, "Y": -1}
   ],
   "_Formation说明": "P1方初始布阵位置（左侧），P2方自动镜像到右侧（X取反）",
 
@@ -35,10 +30,13 @@
     "CritStrike":     "被动：普攻有概率造成双倍伤害。Param1=触发概率%(100=必触发), Param2=伤害倍率%(200=双倍)",
     "DodgeBlock":     "被动：受到伤害时有概率完全格挡（不格挡治疗）。Param1=触发概率%(100=必触发)",
     "UltCDReduce":    "被动：对敌人造成伤害时有概率减少大招CD（召唤物伤害不算）。Param1=触发概率%(100=必触发), Param2=减少帧数",
-    "Lifesteal":      "被动：对敌人造成伤害时有概率回复自身血量。Param1=触发概率%(100=必触发), Param2=吸血百分比%(50=回复伤害的50%)"
+    "Lifesteal":      "被动：对敌人造成伤害时有概率回复自身血量。Param1=触发概率%(100=必触发), Param2=吸血百分比%(50=回复伤害的50%)",
+    "OnHitDebuff":    "被动：普攻命中敌人后自动附加Buffs中定义的debuff。无概率判定，每次命中必触发"
   },
 
-  "_Buffs字段说明": "技能可通过Buffs数组附加任意buff。每个buff含: Type(Slow/Stun), Duration(持续帧数), Value(效果值，Slow用0.5=50%移速)。任何技能都可以配置Buffs。",
+  "_Buffs字段说明": "技能可通过Buffs数组附加任意buff。每个buff含: Type(Slow/Stun/AtkUp/DefUp/AtkSpeedUp/AtkSpeedDown/AtkDown), Duration(持续帧数), Value(效果值百分比), IsDebuff(true=减益/false=增益)。Slow的Value=0.5表示移速变为50%。AtkUp/DefUp/AtkSpeedUp/AtkSpeedDown/AtkDown的Value=0.3表示30%增幅/减伤/攻速/攻击力变化。",
+
+  "_TargetScope说明补充": "除Single/All/LowestHp外，还支持RandomN（如Random3）选择N个随机敌人",
 
   "Skills": [
     {
@@ -195,6 +193,73 @@
       "Cooldown": 0,
       "Param1": 30, "_Param1说明": "触发概率30%",
       "Param2": 50, "_Param2说明": "吸血50%（回复造成伤害的50%）"
+    },
+    {
+      "Id": "witch_orb", "Name": "魔法球",
+      "_说明": "巫师普攻：发射追踪魔法球，命中后造成伤害",
+      "Type": "RangedAttack",
+      "Damage": 35, "Range": 6, "Cooldown": 15, "Windup": 4, "Recovery": 3,
+      "Param1": 7, "_Param1说明": "弹射物飞行速度",
+      "TargetTeam": "Enemy", "TargetScope": "Single"
+    },
+    {
+      "Id": "witch_atk_speed_up", "Name": "战意鼓舞",
+      "_说明": "巫师副技能：给血量最低的友方角色施加攻击速度提升buff",
+      "Type": "Instant",
+      "Damage": 0, "Cooldown": 60, "Windup": 3, "Recovery": 2,
+      "TargetTeam": "Ally", "TargetScope": "LowestHp",
+      "Buffs": [{"Type": "AtkSpeedUp", "Duration": 45, "Value": 0.3, "IsDebuff": false}],
+      "_Buffs说明": "攻速提升45帧（3秒），攻速增加30%（CD/前摇/后摇×0.7）"
+    },
+    {
+      "Id": "witch_mass_slow", "Name": "时间枷锁",
+      "_说明": "巫师大招：对3个随机敌人施加降低攻击速度debuff",
+      "Type": "Instant",
+      "Damage": 0, "Cooldown": 150, "Windup": 6, "Recovery": 4,
+      "TargetTeam": "Enemy", "TargetScope": "Random3",
+      "Buffs": [{"Type": "AtkSpeedDown", "Duration": 60, "Value": 0.6, "IsDebuff": true}],
+      "_Buffs说明": "攻速降低60帧（4秒），攻速降低40%（CD/前摇/后摇×1.4）"
+    },
+    {
+      "Id": "on_hit_atk_slow", "Name": "诅咒之触",
+      "_说明": "巫师被动：普攻命中敌人后自动附加攻速降低debuff",
+      "Type": "OnHitDebuff",
+      "Cooldown": 0,
+      "Buffs": [{"Type": "AtkSpeedDown", "Duration": 20, "Value": 0.15, "IsDebuff": true}],
+      "_Buffs说明": "攻速降低20帧（约1.3秒），攻速降低15%（CD/前摇/后摇×1.15）"
+    },
+    {
+      "Id": "barbarian_atk", "Name": "重击",
+      "_说明": "野蛮人普攻：近战重击，单体高伤害",
+      "Type": "MeleeAttack",
+      "Damage": 90, "Range": 1, "Cooldown": 10, "Windup": 2, "Recovery": 2,
+      "TargetTeam": "Enemy", "TargetScope": "Single"
+    },
+    {
+      "Id": "barbarian_atk_up", "Name": "战吼",
+      "_说明": "野蛮人副技能：给血量最低的友方角色施加攻击力提升buff",
+      "Type": "Instant",
+      "Damage": 0, "Cooldown": 60, "Windup": 3, "Recovery": 2,
+      "TargetTeam": "Ally", "TargetScope": "LowestHp",
+      "Buffs": [{"Type": "AtkUp", "Duration": 45, "Value": 0.35, "IsDebuff": false}],
+      "_Buffs说明": "攻击力提升45帧（3秒），攻击力增加35%"
+    },
+    {
+      "Id": "barbarian_mass_atk_down", "Name": "威吓",
+      "_说明": "野蛮人大招：对3个随机敌人施加降低攻击力debuff",
+      "Type": "Instant",
+      "Damage": 0, "Cooldown": 150, "Windup": 6, "Recovery": 4,
+      "TargetTeam": "Enemy", "TargetScope": "Random3",
+      "Buffs": [{"Type": "AtkDown", "Duration": 60, "Value": 0.6, "IsDebuff": true}],
+      "_Buffs说明": "攻击力降低60帧（4秒），攻击力降低40%"
+    },
+    {
+      "Id": "barbarian_lifesteal", "Name": "嗜血",
+      "_说明": "野蛮人被动：对敌人造成伤害时必定回复自身血量",
+      "Type": "Lifesteal",
+      "Cooldown": 0,
+      "Param1": 100, "_Param1说明": "触发概率100%（必定触发）",
+      "Param2": 30, "_Param2说明": "吸血30%（回复造成伤害的30%）"
     }
   ],
 
@@ -214,6 +279,7 @@
     "MoveSpeed": 1,
     "TurnSpeed": 8,
     "CollisionRadius": 0.5,
+    "StaggerDuration": 8, "_StaggerDuration说明": "僵直帧数（8≈ 0.5秒），战士护甲厚僵直短",
     "HeadIcon": "HeadIcons/warrior",
     "Profession": "Warrior", "_职业": "战士",
     "Passive": "crit_strike", "_被动": "暴击（普攻概率双倍伤害）",
@@ -228,6 +294,7 @@
     "MoveSpeed": 3,
     "TurnSpeed": 10,
     "CollisionRadius": 0.5,
+    "StaggerDuration": 12, "_StaggerDuration说明": "僵直帧数（12≈ 0.8秒）",
     "HeadIcon": "HeadIcons/archer",
     "Profession": "Archer", "_职业": "射手",
     "Passive": "flee_on_hit", "_被动": "受击后撤",
@@ -242,6 +309,7 @@
     "MoveSpeed": 2,
     "TurnSpeed": 10,
     "CollisionRadius": 0.5,
+    "StaggerDuration": 10, "_StaggerDuration说明": "僵直帧数（10≈ 0.67秒）",
     "HeadIcon": "HeadIcons/assassin",
     "Profession": "Assassin", "_职业": "刺客",
     "Passive": "dodge_block", "_被动": "格挡（概率免疫伤害）",
@@ -256,6 +324,7 @@
     "MoveSpeed": 2,
     "TurnSpeed": 10,
     "CollisionRadius": 0.5,
+    "StaggerDuration": 15, "_StaggerDuration说明": "僵直帧数（15=1秒），法师较脆弱僵直久",
     "HeadIcon": "HeadIcons/mage",
     "Profession": "Mage", "_职业": "法师",
     "Passive": "ult_cd_reduce", "_被动": "奥术涌流（造成伤害概率减少大招CD）",
@@ -270,6 +339,7 @@
     "MoveSpeed": 1,
     "TurnSpeed": 10,
     "CollisionRadius": 0.5,
+    "StaggerDuration": 0, "_StaggerDuration说明": "召唤物不会被打断",
     "HeadIcon": "HeadIcons/snowman",
     "Profession": "Mage", "_职业": "法师（继承法师索敌规则）",
     "Passive": "",
@@ -282,11 +352,42 @@
     "MoveSpeed": 2,
     "TurnSpeed": 10,
     "CollisionRadius": 0.5,
+    "StaggerDuration": 12, "_StaggerDuration说明": "僵直帧数（12≈ 0.8秒）",
     "HeadIcon": "HeadIcons/healer",
     "Profession": "Support", "_职业": "辅助",
     "Passive": "lifesteal", "_被动": "生命汲取（造成伤害概率回血）",
     "NormalAttack": "healer_orb", "_普攻": "魔法球（远程追踪弹射物）",
     "Skill2": "single_heal", "_副技能": "治愈术（单体治疗）",
     "Ultimate": "group_heal", "_大招": "圣光普照（群体治疗）"
+  },
+
+  "_Witch说明": "巫师 — 远程法师，中等偏低血量，魔法球普攻自带攻速降低debuff，副技能给友方加攻速buff，大招对3个随机敌人施加攻速降低debuff",
+  "Witch": {
+    "MaxHp": 1100,
+    "MoveSpeed": 2,
+    "TurnSpeed": 10,
+    "CollisionRadius": 0.5,
+    "StaggerDuration": 14, "_StaggerDuration说明": "僵直帧数（14≈ 0.93秒）",
+    "HeadIcon": "HeadIcons/witch",
+    "Profession": "Support", "_职业": "辅助",
+    "Passive": "on_hit_atk_slow", "_被动": "诅咒之触（普攻命中降低敌方攻速）",
+    "NormalAttack": "witch_orb", "_普攻": "魔法球（远程追踪弹射物）",
+    "Skill2": "witch_atk_speed_up", "_副技能": "战意鼓舞（友方攻速提升）",
+    "Ultimate": "witch_mass_slow", "_大招": "时间枷锁（3个敌人攻速降低）"
+  },
+
+  "_Barbarian说明": "野蛮人 — 近战战士，高血量低移速，单体重击普攻，副技能战吼（给友方加攻击力buff），大招威吓（对3个敌人降攻击力），被动嗜血（必定吸血）",
+  "Barbarian": {
+    "MaxHp": 1800,
+    "MoveSpeed": 1,
+    "TurnSpeed": 8,
+    "CollisionRadius": 0.5,
+    "StaggerDuration": 6, "_StaggerDuration说明": "僵直帧数（6≈ 0.4秒），野蛮人体格强壮僵直极短",
+    "HeadIcon": "HeadIcons/barbarian",
+    "Profession": "Warrior", "_职业": "战士",
+    "Passive": "barbarian_lifesteal", "_被动": "嗜血（普攻命中必定吸血30%）",
+    "NormalAttack": "barbarian_atk", "_普攻": "重击（单体近战）",
+    "Skill2": "barbarian_atk_up", "_副技能": "战吼（友方攻击力提升）",
+    "Ultimate": "barbarian_mass_atk_down", "_大招": "威吓（3个敌人攻击力降低）"
   }
 }

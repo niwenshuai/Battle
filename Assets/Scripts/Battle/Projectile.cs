@@ -25,11 +25,13 @@ namespace FrameSync
 
         BattleFighter _target;
         BattleFighter _sourceFighter; // 发射者引用（用于触发攻击者被动）
+        BuffTemplate[] _hitBuffs;     // 命中后附加的buff列表
 
         public void Init(byte sourceId, BattleFighter target, FixedVector2 startPos,
                          FixedInt speed, FixedInt damage,
                          bool isSkill2 = false, FixedInt knockbackDist = default,
-                         BattleFighter sourceFighter = null)
+                         BattleFighter sourceFighter = null,
+                         BuffTemplate[] hitBuffs = null)
         {
             SourceId = sourceId;
             TargetId = target.PlayerId;
@@ -42,6 +44,7 @@ namespace FrameSync
             IsSkill2 = isSkill2;
             KnockbackDist = knockbackDist;
             _sourcePos = startPos;
+            _hitBuffs = hitBuffs;
         }
 
         /// <summary>每帧驱动。返回 true 表示命中，应从列表移除。</summary>
@@ -107,9 +110,38 @@ namespace FrameSync
                     IntParam = _target.Hp.ToInt(),
                 });
 
-                // 攻击者被动触发（吸血/大招CD减少等）
+                // 攻击者被动触发（吸血/大招CD减少/命中debuff等）
                 if (_sourceFighter != null)
-                    _sourceFighter.OnDealDamage(Damage, frame, events);
+                    _sourceFighter.OnDealDamage(Damage, _target, frame, events);
+
+                // 应用弹射物附加buff（普攻减速等）
+                if (_hitBuffs != null && !_target.IsDead)
+                {
+                    for (int b = 0; b < _hitBuffs.Length; b++)
+                    {
+                        var bt = _hitBuffs[b];
+                        _target.AddBuff(new Buff
+                        {
+                            Type       = bt.Type,
+                            FramesLeft = bt.Duration,
+                            Value      = bt.Value,
+                            SourceId   = SourceId,
+                            IsDebuff   = bt.IsDebuff,
+                        });
+                        events.Add(new BattleEvent
+                        {
+                            Frame    = frame,
+                            Type     = BattleEventType.BuffApplied,
+                            SourceId = SourceId,
+                            TargetId = TargetId,
+                            IntParam = ((int)bt.Type << 16) | bt.Duration,
+                        });
+                    }
+                }
+
+                // 打断判定：普攻前摇或移动中被伤害可能触发僵直
+                if (!_target.IsDead)
+                    _target.TryInterrupt();
 
                 // 被攻击后触发反应式副技能 + 被动技能（击退箭不触发）
                 if (!IsSkill2 && !_target.IsDead)

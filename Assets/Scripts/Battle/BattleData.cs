@@ -13,6 +13,8 @@ namespace FrameSync
         Mage     = 4, // 法师（远程，火球+召唤）
         Snowman  = 5, // 雪人（召唤物）
         Healer   = 6, // 医疗师（远程辅助，治疗）
+        Witch    = 7, // 巫师（远程，魔法球+攻速buff/debuff）
+        Barbarian = 8, // 野蛮人（近战，攻击buff/debuff+吸血）
     }
 
     /// <summary>职业类型（用于索敌优先级）。</summary>
@@ -159,6 +161,7 @@ namespace FrameSync
         public int    MoveSpeed;
         public int    TurnSpeed;
         public float  CollisionRadius;
+        public int    StaggerDuration;   // 被打断后僵直帧数（0=不可打断）
         public string HeadIcon;         // 头像精灵路径（Resources下）
         public string Profession;       // 职业名（Warrior/Mage/Archer/Assassin/Support）
         public string Passive;          // 被动技能ID
@@ -194,6 +197,8 @@ namespace FrameSync
         static CharacterStats _mage;
         static CharacterStats _snowman;
         static CharacterStats _healer;
+        static CharacterStats _witch;
+        static CharacterStats _barbarian;
         static SkillConfig[] _skillsArray;
         static FormationPos[] _formation;
         static TargetPriorityEntry[] _targetPriority;
@@ -206,6 +211,7 @@ namespace FrameSync
         {
             public int ArenaHalf = 10;
             public int TeamSize = 1;
+            public int InterruptChance = 25;
             public FormationPos[] Formation;
             public TargetPriorityEntry[] TargetPriority;
             public SkillConfig[] Skills;
@@ -215,9 +221,12 @@ namespace FrameSync
             public CharacterStats Mage;
             public CharacterStats Snowman;
             public CharacterStats Healer;
+            public CharacterStats Witch;
+            public CharacterStats Barbarian;
         }
 
         static int _arenaHalf = 10;
+        static int _interruptChance = 25;
 
         static void EnsureLoaded()
         {
@@ -234,10 +243,13 @@ namespace FrameSync
                 _mage        = root.Mage;
                 _snowman     = root.Snowman;
                 _healer      = root.Healer;
+                _witch       = root.Witch;
+                _barbarian   = root.Barbarian;
                 _skillsArray = root.Skills;
                 _formation   = root.Formation;
                 _teamSize    = root.TeamSize > 0 ? root.TeamSize : 1;
                 _arenaHalf   = root.ArenaHalf > 0 ? root.ArenaHalf : 10;
+                _interruptChance = root.InterruptChance;
                 _targetPriority = root.TargetPriority;
                 BuildPriorityMap();
             }
@@ -250,6 +262,8 @@ namespace FrameSync
                 _mage     = new CharacterStats { MaxHp=1200, MoveSpeed=2, TurnSpeed=10, CollisionRadius=0.5f, NormalAttack="mage_fireball", Skill2="react_blink", Ultimate="summon_snowman" };
                 _snowman  = new CharacterStats { MaxHp=500, MoveSpeed=1, TurnSpeed=10, CollisionRadius=0.5f, NormalAttack="snowman_iceball" };
                 _healer   = new CharacterStats { MaxHp=1300, MoveSpeed=2, TurnSpeed=10, CollisionRadius=0.5f, Profession="Support", NormalAttack="healer_orb", Skill2="single_heal", Ultimate="group_heal" };
+                _witch    = new CharacterStats { MaxHp=1100, MoveSpeed=2, TurnSpeed=10, CollisionRadius=0.5f, Profession="Mage", Passive="on_hit_atk_slow", NormalAttack="witch_orb", Skill2="witch_atk_speed_up", Ultimate="witch_mass_slow" };
+                _barbarian = new CharacterStats { MaxHp=1800, MoveSpeed=1, TurnSpeed=8, CollisionRadius=0.5f, Profession="Warrior", Passive="barbarian_lifesteal", NormalAttack="barbarian_atk", Skill2="barbarian_atk_up", Ultimate="barbarian_mass_atk_down" };
                 _skillsArray = System.Array.Empty<SkillConfig>();
                 _formation = new[] { new FormationPos { X = -5, Y = 0 } };
                 _teamSize = 1;
@@ -277,6 +291,8 @@ namespace FrameSync
                 CharacterType.Mage     => _mage,
                 CharacterType.Snowman  => _snowman,
                 CharacterType.Healer   => _healer,
+                CharacterType.Witch    => _witch,
+                CharacterType.Barbarian => _barbarian,
                 _ => _warrior,
             };
         }
@@ -289,6 +305,11 @@ namespace FrameSync
         public static int TeamSize
         {
             get { EnsureLoaded(); return _teamSize; }
+        }
+
+        public static int InterruptChance
+        {
+            get { EnsureLoaded(); return _interruptChance; }
         }
 
         public static FormationPos[] Formation
@@ -374,36 +395,25 @@ namespace FrameSync
     /// </summary>
     public static class BTConfigLoader
     {
-        static System.Collections.Generic.Dictionary<CharacterType, BTNodeConfig> _configs;
+        static BTNodeConfig _defaultConfig;
         static bool _loaded;
 
         [System.Serializable]
         class BTConfigRoot
         {
-            public BTNodeConfig Warrior;
-            public BTNodeConfig Archer;
-            public BTNodeConfig Assassin;
-            public BTNodeConfig Mage;
-            public BTNodeConfig Snowman;
-            public BTNodeConfig Healer;
+            public BTNodeConfig Default;
         }
 
         static void EnsureLoaded()
         {
             if (_loaded) return;
             _loaded = true;
-            _configs = new System.Collections.Generic.Dictionary<CharacterType, BTNodeConfig>();
 
             var asset = UnityEngine.Resources.Load<UnityEngine.TextAsset>("BehaviorTreeConfig");
             if (asset != null)
             {
                 var root = UnityEngine.JsonUtility.FromJson<BTConfigRoot>(asset.text);
-                if (root.Warrior  != null) _configs[CharacterType.Warrior]  = root.Warrior;
-                if (root.Archer   != null) _configs[CharacterType.Archer]   = root.Archer;
-                if (root.Assassin != null) _configs[CharacterType.Assassin] = root.Assassin;
-                if (root.Mage     != null) _configs[CharacterType.Mage]     = root.Mage;
-                if (root.Snowman  != null) _configs[CharacterType.Snowman]  = root.Snowman;
-                if (root.Healer   != null) _configs[CharacterType.Healer]   = root.Healer;
+                _defaultConfig = root.Default;
             }
             else
             {
@@ -411,10 +421,11 @@ namespace FrameSync
             }
         }
 
+        /// <summary>获取统一行为树配置（所有角色共用）。</summary>
         public static BTNodeConfig Get(CharacterType type)
         {
             EnsureLoaded();
-            return _configs.TryGetValue(type, out var cfg) ? cfg : null;
+            return _defaultConfig;
         }
 
         /// <summary>编辑器或热重载时可调用，强制下次访问重新读取 JSON。</summary>
