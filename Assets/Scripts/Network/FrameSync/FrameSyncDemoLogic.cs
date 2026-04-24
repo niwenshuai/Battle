@@ -60,7 +60,7 @@ public class FrameSyncDemoLogic : MonoBehaviour, IGameLogic
     {
         if (_positions == null) return;
 
-        foreach (var input in frame.Inputs)
+        foreach (var input in frame.LogicFrameInputs[0])
         {
             byte pid = input.PlayerId;
             if (pid == 0 || pid > _playerCount) continue;

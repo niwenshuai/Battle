@@ -1815,6 +1815,11 @@ namespace FrameSync
                 case "FleeOnHit":
                 {
                     if (IsFleeing) return false; // 正在逃跑中不重复触发
+                    // 仅当攻击者在近距离阈值内时才触发后撤
+                    var toAttacker = damageSourcePos - Position;
+                    var attackerDist = toAttacker.Magnitude;
+                    if (_passiveParam2 > FixedInt.Zero && attackerDist > _passiveParam2)
+                        return false; // 攻击者距离过远，不触发后撤
                     IsFleeing = true;
                     _fleeStartPos = Position;
                     return true;

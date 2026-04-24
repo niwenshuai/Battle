@@ -73,20 +73,27 @@ namespace FrameSync
     // ── 帧数据（服务器下发的权威帧） ────────────────────────
 
     /// <summary>
-    /// 一个逻辑帧包含所有玩家的输入。
+    /// 一个网络同步帧包含多个逻辑帧的输入。
+    /// 每个逻辑帧含所有玩家的输入，数量由 LogicFrameCount 指定（默认2，即30Hz逻辑/15Hz网络）。
     /// </summary>
     public struct FrameData
     {
-        public int           FrameId;
-        public PlayerInput[] Inputs;
+        public int             FrameId;         // 网络帧号
+        public int             LogicFrameCount; // 包含的逻辑帧数（通常为2）
+        public PlayerInput[][] LogicFrameInputs; // [logicFrameIndex][playerIndex]
 
         public void Serialize(BinaryWriter w)
         {
             Proto.WriteInt32BE(w, FrameId);
-            w.Write((byte)(Inputs?.Length ?? 0));
-            if (Inputs != null)
-                foreach (var inp in Inputs)
-                    inp.Serialize(w);
+            w.Write((byte)LogicFrameCount);
+            for (int i = 0; i < LogicFrameCount; i++)
+            {
+                var inputs = LogicFrameInputs[i];
+                w.Write((byte)(inputs?.Length ?? 0));
+                if (inputs != null)
+                    foreach (var inp in inputs)
+                        inp.Serialize(w);
+            }
         }
 
         public static FrameData Deserialize(BinaryReader r)
@@ -94,11 +101,16 @@ namespace FrameSync
             var fd = new FrameData
             {
                 FrameId = Proto.ReadInt32BE(r),
+                LogicFrameCount = r.ReadByte(),
             };
-            int count = r.ReadByte();
-            fd.Inputs = new PlayerInput[count];
-            for (int i = 0; i < count; i++)
-                fd.Inputs[i] = PlayerInput.Deserialize(r);
+            fd.LogicFrameInputs = new PlayerInput[fd.LogicFrameCount][];
+            for (int i = 0; i < fd.LogicFrameCount; i++)
+            {
+                int count = r.ReadByte();
+                fd.LogicFrameInputs[i] = new PlayerInput[count];
+                for (int j = 0; j < count; j++)
+                    fd.LogicFrameInputs[i][j] = PlayerInput.Deserialize(r);
+            }
             return fd;
         }
     }
@@ -142,9 +154,9 @@ namespace FrameSync
 
         // ── 服务器 → 客户端 ──────────────────────────────────
 
-        public static byte[] PackJoinRoomAck(byte playerId, byte tickRate)
+        public static byte[] PackJoinRoomAck(byte playerId, byte tickRate, byte logicFPS)
         {
-            return new[] { (byte)MsgType.JoinRoomAck, playerId, tickRate };
+            return new[] { (byte)MsgType.JoinRoomAck, playerId, tickRate, logicFPS };
         }
 
         public static byte[] PackRoomSnapshot(List<(byte id, string name, bool ready)> players)

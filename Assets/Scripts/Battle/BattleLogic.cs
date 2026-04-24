@@ -168,7 +168,7 @@ namespace FrameSync
 
         void TickSelection(FrameData frame)
         {
-            foreach (var input in frame.Inputs)
+            foreach (var input in frame.LogicFrameInputs[0])
             {
                 byte pid = input.PlayerId;
                 if (pid < 1 || pid > 2) continue;
@@ -272,7 +272,7 @@ namespace FrameSync
         void TickCombat(FrameData frame)
         {
             // 1. 读取玩家大招指令 — 对该玩家队伍所有活着的角色生效
-            foreach (var input in frame.Inputs)
+            foreach (var input in frame.LogicFrameInputs[0])
             {
                 byte pid = input.PlayerId;
                 if (pid < 1 || pid > 2) continue;

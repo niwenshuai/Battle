@@ -101,7 +101,8 @@ public class LocalBattleEntry : MonoBehaviour
             var frame = new FrameData
             {
                 FrameId = _frameId,
-                Inputs  = new[] { p1Input, p2Input },
+                LogicFrameCount = 1,
+                LogicFrameInputs = new[] { new[] { p1Input, p2Input } },
             };
 
             _logic.OnLogicUpdate(frame);

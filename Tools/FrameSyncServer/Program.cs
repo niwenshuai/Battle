@@ -3,13 +3,19 @@
 //
 // 运行：cd Tools/FrameSyncServer && dotnet run
 //       cd Tools/FrameSyncServer && dotnet run -- 9100 15
-//       参数1: 端口(默认9100)  参数2: TickRate(默认15)
+//       参数1: 端口(默认9100)  参数2: NetTickRate(默认15)
+//
+// 帧率架构：
+//   - 网络同步帧率 15Hz（NetTickRate），每秒15次广播 FrameData
+//   - 客户端逻辑帧率 30Hz（LogicFPS），每帧驱动一次游戏逻辑
+//   - 每个 FrameData 携带2个逻辑帧的输入（LogicFramesPerNetTick=2）
+//   - 服务器每个 tick 收集2轮输入打包成1个 FrameData 广播
 //
 // 房间流程：
 //   1. 客户端 JoinRoom → 分配 PlayerId，返回 JoinRoomAck
 //   2. 广播 RoomSnapshot
 //   3. 所有玩家 PlayerReady → 广播 GameStart
-//   4. 服务器以 TickRate 固定频率收集输入、广播 FrameData
+//   4. 服务器以 NetTickRate 固定频率收集输入、广播 FrameData
 //   5. 任一客户端 LeaveRoom 或断开 → 广播 GameEnd
 // ═══════════════════════════════════════════════════════════════
 
@@ -43,8 +49,6 @@ namespace FrameSyncServer
         public string Name;
         public bool Ready;
         public Session Session;
-        // 当前帧缓存的输入
-        public byte[] LatestInput; // 13 bytes raw (PlayerInput serialized)
     }
 
     // ── 房间 ─────────────────────────────────────────────────
@@ -52,18 +56,26 @@ namespace FrameSyncServer
     class Room
     {
         public const int MaxPlayers = 4;
+        public const int LogicFramesPerNetTick = 2; // 每个网络帧包含2个逻辑帧
 
         public readonly List<RoomPlayer> Players = new();
         public bool GameRunning;
-        public int CurrentFrame;
-        public int TickRateHz;
+        public int CurrentFrame;       // 网络帧号
+        public int TickRateHz;         // 网络同步帧率 (15)
+        public int LogicFPS;           // 客户端逻辑帧率 (30)
         public int RandomSeed;
 
         private readonly object _lock = new();
-        // 每个玩家每帧的输入收集
-        private readonly ConcurrentDictionary<byte, byte[]> _pendingInputs = new();
+        // 每个玩家每个逻辑子帧的输入收集
+        // Key: (playerId, subFrameIndex) → 13 bytes raw input
+        private readonly ConcurrentDictionary<(byte playerId, int subFrame), byte[]> _pendingInputs = new();
+        private int _currentSubFrame; // 当前正在收集的逻辑子帧索引 (0 或 1)
 
-        public Room(int tickRate) { TickRateHz = tickRate; }
+        public Room(int tickRate)
+        {
+            TickRateHz = tickRate;
+            LogicFPS = tickRate * LogicFramesPerNetTick;
+        }
 
         public RoomPlayer AddPlayer(Session session, string name)
         {
@@ -87,19 +99,27 @@ namespace FrameSyncServer
             lock (_lock) { return Players.Count >= 1 && Players.All(p => p.Ready); }
         }
 
+        public void SetCurrentSubFrame(int subFrame)
+        {
+            _currentSubFrame = subFrame % LogicFramesPerNetTick;
+        }
+
         public void CollectInput(byte playerId, byte[] inputBytes)
         {
-            // 同一 tick 内，非零 MoveX 不被后续零值覆盖
-            // PlayerInput 序列化: [1 byte PlayerId][4 byte MoveX BE][4 byte MoveY BE][4 byte Buttons BE]
-            // MoveX 在 inputBytes[1..4]
-            if (_pendingInputs.TryGetValue(playerId, out var existing))
+            // 根据输入中的 frameId 确定属于哪个逻辑子帧
+            // 客户端以30Hz发送输入，每个网络tick(15Hz)会收到2次输入
+            // 我们用 _currentSubFrame 来分配：0=前半tick, 1=后半tick
+            // 简化方案：用轮转方式分配，每个新 playerId 输入交替分配到 subFrame 0/1
+            // 更精确的方案：用输入中的 frameId % LogicFramesPerNetTick
+            var key = (playerId, _currentSubFrame);
+
+            // 同一子帧内，非零 MoveX 不被后续零值覆盖
+            if (_pendingInputs.TryGetValue(key, out var existing))
             {
                 int oldMx = (existing[1] << 24) | (existing[2] << 16) | (existing[3] << 8) | existing[4];
                 int newMx = (inputBytes[1] << 24) | (inputBytes[2] << 16) | (inputBytes[3] << 8) | inputBytes[4];
                 if (oldMx != 0 && newMx == 0)
                 {
-                    // 保留已有的非零 MoveX，但更新 Buttons（取或合并）
-                    // Buttons 在 inputBytes[9..12]
                     uint oldBtn = ((uint)existing[9] << 24) | ((uint)existing[10] << 16) | ((uint)existing[11] << 8) | existing[12];
                     uint newBtn = ((uint)inputBytes[9] << 24) | ((uint)inputBytes[10] << 16) | ((uint)inputBytes[11] << 8) | inputBytes[12];
                     uint merged = oldBtn | newBtn;
@@ -107,13 +127,13 @@ namespace FrameSyncServer
                     existing[10] = (byte)(merged >> 16);
                     existing[11] = (byte)(merged >> 8);
                     existing[12] = (byte)merged;
-                    return; // 保留 existing，不覆盖
+                    return;
                 }
             }
-            _pendingInputs[playerId] = inputBytes;
+            _pendingInputs[key] = inputBytes;
         }
 
-        /// <summary>生成当前帧的 FrameData 并推进帧号。</summary>
+        /// <summary>生成当前网络帧的 FrameData（包含2个逻辑帧的输入）并推进帧号。</summary>
         public byte[] BuildFrameData()
         {
             lock (_lock)
@@ -122,24 +142,32 @@ namespace FrameSyncServer
                 using var w = new BinaryWriter(ms);
                 w.Write((byte)MsgType.FrameData);
                 WriteInt32BE(w, CurrentFrame);
-                w.Write((byte)Players.Count);
+                w.Write((byte)LogicFramesPerNetTick); // 逻辑帧数 = 2
 
-                foreach (var p in Players)
+                // 写入每个逻辑子帧的玩家输入
+                for (int subFrame = 0; subFrame < LogicFramesPerNetTick; subFrame++)
                 {
-                    if (_pendingInputs.TryRemove(p.Id, out var raw))
+                    w.Write((byte)Players.Count);
+                    foreach (var p in Players)
                     {
-                        w.Write(raw);
-                    }
-                    else
-                    {
-                        // 该玩家本帧无输入，填空输入
-                        w.Write(p.Id);
-                        WriteInt32BE(w, 0); // MoveX
-                        WriteInt32BE(w, 0); // MoveY
-                        WriteUInt32BE(w, 0); // Buttons
+                        var key = (p.Id, subFrame);
+                        if (_pendingInputs.TryRemove(key, out var raw))
+                        {
+                            w.Write(raw);
+                        }
+                        else
+                        {
+                            // 该玩家该子帧无输入，填空输入
+                            w.Write(p.Id);
+                            WriteInt32BE(w, 0); // MoveX
+                            WriteInt32BE(w, 0); // MoveY
+                            WriteUInt32BE(w, 0); // Buttons
+                        }
                     }
                 }
 
+                _pendingInputs.Clear(); // 清理残留
+                _currentSubFrame = 0;
                 CurrentFrame++;
                 return ms.ToArray();
             }
@@ -298,7 +326,7 @@ namespace FrameSyncServer
 
             var listener = new TcpListener(IPAddress.Any, port);
             listener.Start();
-            Log($"帧同步服务器已启动 — 端口 {port}, TickRate {tickRate}Hz");
+            Log($"帧同步服务器已启动 — 端口 {port}, NetTickRate {tickRate}Hz, LogicFPS {_room.LogicFPS}Hz");
             Log("命令: quit=退出  list=玩家列表  start=强制开始  end=强制结束");
 
             // 接受连接
@@ -406,7 +434,8 @@ namespace FrameSyncServer
             SessionToPlayer[session] = player;
 
             // 回复 JoinRoomAck（控制消息立即发送，不加延迟）
-            session.Send(new byte[] { (byte)MsgType.JoinRoomAck, player.Id, (byte)_room.TickRateHz });
+            // [0x81][playerId][tickRate][logicFPS]
+            session.Send(new byte[] { (byte)MsgType.JoinRoomAck, player.Id, (byte)_room.TickRateHz, (byte)_room.LogicFPS });
 
             Log($"[JoinRoom] #{player.Id} '{name}'");
 
@@ -449,6 +478,11 @@ namespace FrameSyncServer
 
             // data: [1 byte MsgType][4 byte frameId][13 byte PlayerInput]
             if (data.Length < 1 + 4 + 13) return;
+
+            // 从 frameId 计算子帧索引：客户端逻辑帧号 % LogicFramesPerNetTick
+            int clientFrameId = (data[1] << 24) | (data[2] << 16) | (data[3] << 8) | data[4];
+            int subFrame = clientFrameId % Room.LogicFramesPerNetTick;
+            _room.SetCurrentSubFrame(subFrame);
 
             // 提取 PlayerInput 原始字节（13 bytes）
             byte[] inputRaw = new byte[13];

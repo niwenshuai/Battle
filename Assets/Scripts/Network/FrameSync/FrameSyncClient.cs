@@ -38,9 +38,10 @@ namespace FrameSync
         public Phase CurrentPhase { get; private set; } = Phase.Idle;
 
         public byte LocalPlayerId { get; private set; }
-        public int  CurrentFrame  { get; private set; }
-        public int  ServerFrame   { get; private set; } // 最后收到的服务器帧号
-        public int  TickRate      { get; private set; } = 15;
+        public int  CurrentFrame  { get; private set; }  // 逻辑帧号
+        public int  ServerFrame   { get; private set; }  // 最后收到的服务器网络帧号
+        public int  TickRate      { get; private set; } = FrameTime.NetTickRate;
+        public int  LogicFPS      { get; private set; } = FrameTime.FPS;
 
         // ── 内部 ─────────────────────────────────────────────
         private NetworkManager _net;
@@ -93,21 +94,38 @@ namespace FrameSync
             if (CurrentPhase != Phase.Playing) return;
             if (_gameLogic == null) return;
 
-            // 1. 采集输入并上报
+            // 1. 采集输入并上报（每个逻辑帧都上报）
             var input = _gameLogic.SampleLocalInput();
             input.PlayerId = LocalPlayerId;
             _net.Send(Proto.PackPlayerInput(CurrentFrame, input));
 
-            // 2. 消费帧缓冲，追帧
+            // 2. 按逻辑帧率驱动追帧
+            _tickAccumulator += Time.deltaTime;
             int executed = 0;
-            while (_frameBuffer.Count > 0 && executed < _maxCatchUpPerFrame)
+            while (_tickAccumulator >= _tickInterval && executed < _maxCatchUpPerFrame)
             {
-                int nextFrame = CurrentFrame;
-                if (!_frameBuffer.TryGetValue(nextFrame, out var frame))
-                    break; // 还没收到下一帧，等待
+                _tickAccumulator -= _tickInterval;
 
-                _frameBuffer.Remove(nextFrame);
-                _gameLogic.OnLogicUpdate(frame);
+                // 计算当前逻辑帧对应的网络帧号和帧内偏移
+                int logicFramesPerNetTick = LogicFPS / TickRate;
+                int netFrameId = CurrentFrame / logicFramesPerNetTick;
+                int subIndex   = CurrentFrame % logicFramesPerNetTick;
+
+                if (!_frameBuffer.TryGetValue(netFrameId, out var frame))
+                    break; // 还没收到对应的网络帧，等待
+
+                // 构建单逻辑帧的输入
+                var singleFrame = new FrameData
+                {
+                    FrameId = CurrentFrame,
+                    LogicFrameCount = 1,
+                    LogicFrameInputs = new PlayerInput[][]
+                    {
+                        subIndex < frame.LogicFrameCount ? frame.LogicFrameInputs[subIndex] : frame.LogicFrameInputs[0]
+                    },
+                };
+
+                _gameLogic.OnLogicUpdate(singleFrame);
                 CurrentFrame++;
                 executed++;
             }
@@ -163,12 +181,14 @@ namespace FrameSync
 
         private void HandleJoinRoomAck(byte[] data)
         {
+            // [0x81][playerId][tickRate][logicFPS]
             if (data.Length < 3) return;
             LocalPlayerId = data[1];
             TickRate       = data[2];
-            _tickInterval  = 1f / TickRate;
+            LogicFPS       = data.Length >= 4 ? data[3] : TickRate * FrameTime.LogicFramesPerNetTick;
+            _tickInterval  = 1f / LogicFPS;
             CurrentPhase   = Phase.InRoom;
-            Debug.Log($"[FrameSyncClient] 已加入房间 — PlayerId={LocalPlayerId}, TickRate={TickRate}");
+            Debug.Log($"[FrameSyncClient] 已加入房间 — PlayerId={LocalPlayerId}, TickRate={TickRate}, LogicFPS={LogicFPS}");
             OnRoomJoined?.Invoke();
         }
 
