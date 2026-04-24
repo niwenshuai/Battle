@@ -485,7 +485,7 @@ public class MyGame : MonoBehaviour, IGameLogic
 > **文件**: `Tools/FrameSyncServer/Program.cs`  
 > **运行**: `dotnet run` (端口 9100, TickRate 15Hz)
 
-.NET 6 控制台应用，功能：
+.NET 8 控制台应用，功能：
 - **Room**: 最多 4 玩家，管理加入/离开/准备状态
 - **Tick Timer**: 全员准备后以 15Hz（约 66ms）广播 `FrameData`
 - **Session**: 每个 TCP 连接一个会话

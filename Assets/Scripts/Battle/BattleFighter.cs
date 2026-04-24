@@ -72,13 +72,13 @@ namespace FrameSync
 
         string _passiveType;          // 被动技能类型（FleeOnHit/CritStrike/DodgeBlock/UltCDReduce/Lifesteal/OnHitDebuff/AuraResistance）
         FixedInt _passiveParam1;      // 被动参数1
-        int _passiveParam2;           // 被动参数2（整数，概率/倍率/帧数等）
+        FixedInt _passiveParam2;      // 被动参数2
         BuffTemplate[] _passiveBuffs; // OnHitDebuff被动附加的buff列表
 
         // ── 光环被动（AuraResistance）──
         public bool HasAuraResistance => _passiveType == "AuraResistance";
         public FixedInt AuraResBonus => _passiveParam1;  // 光环加成的抗性值
-        public FixedInt AuraRange => _passiveParam2 > 0 ? FixedInt.FromInt(_passiveParam2) : FixedInt.FromInt(5);
+        public FixedInt AuraRange => _passiveParam2 > FixedInt.Zero ? _passiveParam2 : FixedInt.FromInt(5);
         int _prevAtkCD;
         int _prevUltCD;
         bool _cdTotalsEmitted;
@@ -98,7 +98,7 @@ namespace FrameSync
         string _ultType;          // 大招技能类型
         FixedInt _normalAtkProjectileSpeed; // 远程普攻弹射物速度
         int _normalAtkConeAngle;  // MeleeAttack锥形AoE角度（度），0=单体
-        int _normalAtkParam2;     // AoE弹射物爆炸半径
+        FixedInt _normalAtkParam2;     // AoE弹射物爆炸半径
         BuffTemplate[] _normalAtkBuffs; // 普攻附加的buff列表
 
         // ── 职业与索敌优先级 ────────────────────────────────
@@ -122,7 +122,7 @@ namespace FrameSync
         int _skill2TargetRandomCount; // >0时随机选N个目标
         int _prevSkill2CD;
         FixedInt _ultParam1;         // 大招参数1
-        int _ultParam2;              // 大招参数2（召唤物HP等）
+        FixedInt _ultParam2;         // 大招参数2
         BuffTemplate[] _ultBuffs;    // 大招附加的buff列表
         bool _ultTargetAlly;         // true=作用友方, false=作用敌方
         bool _ultTargetAll;          // true=全体, false=单体
@@ -167,14 +167,14 @@ namespace FrameSync
 
         // ── 自我复活（SelfRevive被动）────────────────────────
         public int SelfReviveFramesLeft;   // >0表示正在等待复活的倒计时
-        int _selfReviveDelay;              // 复活延迟帧数（从配置加载）
-        int _selfRevivesLeft;              // 剩余可复活次数
+        FixedInt _selfReviveDelay;              // 复活延迟帧数（从配置加载）
+        FixedInt _selfRevivesLeft;              // 剩余可复活次数
         public bool PendingSelfRevive => SelfReviveFramesLeft > 0;
 
         // ── 死亡爆炸（DeathExplode被动）────────────────────────
         public bool HasDeathExplode => _passiveType == "DeathExplode";
         public FixedInt DeathExplodeRadius => _passiveParam1;
-        public int DeathExplodeDamage => _passiveParam2;
+        public FixedInt DeathExplodeDamage => _passiveParam2;
         public bool DeathExplodeProcessed;
 
         // ── 碰撞规避缓冲区（复用避免GC）────────────────────────
@@ -225,14 +225,14 @@ namespace FrameSync
             if (passive != null)
             {
                 _passiveType     = passive.Type;
-                _passiveParam1   = FixedInt.FromInt(passive.Param1);
-                _passiveParam2   = passive.Param2;
+                _passiveParam1   = FixedInt.FromFloat(passive.Param1);
+                _passiveParam2   = FixedInt.FromFloat(passive.Param2);
                 _fleeDistance     = _passiveType == "FleeOnHit" ? _passiveParam1 : FixedInt.Zero;
                 _passiveBuffs    = BuffTemplate.FromConfigs(passive.Buffs);
                 if (_passiveType == "SelfRevive")
                 {
-                    _selfReviveDelay = passive.Param1;
-                    _selfRevivesLeft = passive.Param2;
+                    _selfReviveDelay = FixedInt.FromFloat(passive.Param1);
+                    _selfRevivesLeft = FixedInt.FromFloat(passive.Param2);
                 }
             }
 
@@ -243,16 +243,16 @@ namespace FrameSync
                 _normalAtkType = atkSkill.Type;
                 BaseAtkDamage = FixedInt.FromInt(atkSkill.Damage);
                 AtkDamage    = BaseAtkDamage;
-                AtkRange     = FixedInt.FromInt(atkSkill.Range);
+                AtkRange     = FixedInt.FromFloat(atkSkill.Range);
                 _baseAtkCooldown = atkSkill.Cooldown;
                 _baseAtkWindup   = atkSkill.Windup;
                 _baseAtkRecovery = atkSkill.Recovery;
                 AtkCooldown  = _baseAtkCooldown;
                 _atkWindup   = _baseAtkWindup;
                 _atkRecovery = _baseAtkRecovery;
-                _normalAtkProjectileSpeed = FixedInt.FromInt(atkSkill.Param1);
-                _normalAtkConeAngle = (_normalAtkType == "MeleeAttack") ? atkSkill.Param1 : 0;
-                _normalAtkParam2 = atkSkill.Param2;
+                _normalAtkProjectileSpeed = FixedInt.FromFloat(atkSkill.Param1);
+                _normalAtkConeAngle = (_normalAtkType == "MeleeAttack") ? FixedInt.FromFloat(atkSkill.Param1).ToInt() : 0;
+                _normalAtkParam2 = FixedInt.FromFloat(atkSkill.Param2);
                 _normalAtkBuffs = BuffTemplate.FromConfigs(atkSkill.Buffs);
             }
 
@@ -263,8 +263,8 @@ namespace FrameSync
                 _skill2Type     = sk2.Type;
                 _skill2Damage   = FixedInt.FromInt(sk2.Damage);
                 _skill2Cooldown = sk2.Cooldown;
-                _skill2Param1   = FixedInt.FromInt(sk2.Param1);
-                _skill2Param2   = FixedInt.FromInt(sk2.Param2);
+                _skill2Param1   = FixedInt.FromFloat(sk2.Param1);
+                _skill2Param2   = FixedInt.FromFloat(sk2.Param2);
                 _skill2Buffs    = BuffTemplate.FromConfigs(sk2.Buffs);
                 _skill2TargetAlly = sk2.TargetTeam == "Ally";
                 _skill2TargetAll  = sk2.TargetScope == "All";
@@ -285,8 +285,8 @@ namespace FrameSync
                 UltCooldown  = ult.Cooldown;
                 _ultWindup   = ult.Windup;
                 _ultRecovery = ult.Recovery;
-                _ultParam1   = FixedInt.FromInt(ult.Param1);
-                _ultParam2   = ult.Param2;
+                _ultParam1   = FixedInt.FromFloat(ult.Param1);
+                _ultParam2   = FixedInt.FromFloat(ult.Param2);
                 _ultBuffs    = BuffTemplate.FromConfigs(ult.Buffs);
                 _ultTargetAlly = ult.TargetTeam == "Ally";
                 _ultTargetAll  = ult.TargetScope == "All";
@@ -1037,7 +1037,7 @@ namespace FrameSync
                 int roll = _bt.Context.Random.Next(100);
                 if (roll < _passiveParam1.ToInt())
                 {
-                    effectiveDmg = AtkDamage * FixedInt.FromInt(_passiveParam2) / FixedInt.FromInt(100);
+                    effectiveDmg = AtkDamage * _passiveParam2 / FixedInt.FromInt(100);
                 }
             }
 
@@ -1112,7 +1112,7 @@ namespace FrameSync
                 var proj = new AoEProjectile();
                 proj.Init(PlayerId, TeamId, Position, dir.Normalized,
                           _normalAtkProjectileSpeed, effectiveDmg, AtkRange,
-                          FixedInt.FromInt(_normalAtkParam2),
+                          _normalAtkParam2,
                           FixedInt.FromFloat(0.5f),
                           _normalAtkBuffs, _allFighters, this);
                 PendingAoEProjectiles.Add(proj);
@@ -1225,7 +1225,7 @@ namespace FrameSync
                         Type     = CharacterType.Snowman,
                         Position = summonPos,
                         Lifetime = _ultParam1.ToInt(),
-                        MaxHp    = _ultParam2,
+                        MaxHp    = _ultParam2.ToInt(),
                     });
                     break;
                 }
@@ -1240,8 +1240,8 @@ namespace FrameSync
                         Position     = zonePos,
                         Radius       = _ultParam1,                    // Param1=半径
                         Damage       = UltDamage,
-                        TickInterval = _ultParam2,                    // Param2=伤害间隔帧数
-                        Lifetime     = SkillConfigLoader.Get(CharacterConfig.Get(CharType).Ultimate)?.Param3 ?? 60,
+                        TickInterval = _ultParam2.ToInt(),                    // Param2=伤害间隔帧数
+                        Lifetime     = FixedInt.FromFloat(SkillConfigLoader.Get(CharacterConfig.Get(CharType).Ultimate)?.Param3 ?? 60f).ToInt(),
                     });
                     break;
                 }
@@ -1303,7 +1303,7 @@ namespace FrameSync
                 {
                     // 开启反伤护盾，持续Param1帧，反弹Param2%伤害
                     _reflectFramesLeft = _ultParam1.ToInt();
-                    _reflectPercent = FixedInt.FromInt(_ultParam2) / FixedInt.FromInt(100);
+                    _reflectPercent = _ultParam2 / FixedInt.FromInt(100);
                     break;
                 }
                 case "DetonateSummons":
@@ -1802,7 +1802,7 @@ namespace FrameSync
 
                     var proj = new PiercingProjectile();
                     proj.Init(PlayerId, TeamId, Position, dir.Normalized,
-                              FixedInt.FromInt(atkSkill.Param1), AtkDamage, AtkRange,
+                              FixedInt.FromFloat(atkSkill.Param1), AtkDamage, AtkRange,
                               FixedInt.FromFloat(0.5f),
                               _normalAtkBuffs, _allFighters, this);
                     PendingPiercingProjectiles.Add(proj);
@@ -1876,7 +1876,7 @@ namespace FrameSync
                 int roll = _bt.Context.Random.Next(100);
                 if (roll < _passiveParam1.ToInt())
                 {
-                    UltCooldownLeft -= _passiveParam2;
+                    UltCooldownLeft -= _passiveParam2.ToInt();
                     if (UltCooldownLeft < 0) UltCooldownLeft = 0;
                 }
             }
@@ -1886,7 +1886,7 @@ namespace FrameSync
                 int roll = _bt.Context.Random.Next(100);
                 if (roll < _passiveParam1.ToInt())
                 {
-                    FixedInt healAmt = damage * FixedInt.FromInt(_passiveParam2) / FixedInt.FromInt(100);
+                    FixedInt healAmt = damage * _passiveParam2 / FixedInt.FromInt(100);
                     if (healAmt > FixedInt.Zero)
                     {
                         Hp = Hp + healAmt;
@@ -2094,9 +2094,9 @@ namespace FrameSync
         public bool TryStartSelfRevive()
         {
             if (_passiveType != "SelfRevive") return false;
-            if (_selfRevivesLeft <= 0) return false;
-            _selfRevivesLeft--;
-            SelfReviveFramesLeft = _selfReviveDelay;
+            if (_selfRevivesLeft <= FixedInt.Zero) return false;
+            _selfRevivesLeft = _selfRevivesLeft - FixedInt.OneVal;
+            SelfReviveFramesLeft = _selfReviveDelay.ToInt();
             return true;
         }
 

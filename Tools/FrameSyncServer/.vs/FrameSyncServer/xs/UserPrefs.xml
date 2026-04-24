@@ -1,6 +1,8 @@
 ﻿<Properties StartupConfiguration="{DFE05E87-B04C-4A43-9018-AF163D034C85}|Default">
   <MonoDevelop.Ide.Workspace ActiveConfiguration="Debug" />
-  <MonoDevelop.Ide.ItemProperties.FrameSyncServer PreferredExecutionTarget="MonoDevelop.Default" />
+  <MonoDevelop.Ide.DebuggingService.Breakpoints>
+    <BreakpointStore />
+  </MonoDevelop.Ide.DebuggingService.Breakpoints>
   <MonoDevelop.Ide.Workbench ActiveDocument="Program.cs">
     <Files>
       <File FileName="Program.cs" Line="269" Column="25" />
@@ -8,7 +10,7 @@
     <Pads>
       <Pad Id="ProjectPad">
         <State name="__root__">
-          <Node name="FrameSyncServer" expanded="True">
+          <Node name="FrameSyncServer">
             <Node name="FrameSyncServer" expanded="True">
               <Node name="Program.cs" selected="True" />
             </Node>
@@ -18,8 +20,6 @@
     </Pads>
   </MonoDevelop.Ide.Workbench>
   <MonoDevelop.Ide.DebuggingService.PinnedWatches />
-  <MonoDevelop.Ide.DebuggingService.Breakpoints>
-    <BreakpointStore />
-  </MonoDevelop.Ide.DebuggingService.Breakpoints>
   <MultiItemStartupConfigurations />
+  <MonoDevelop.Ide.ItemProperties.FrameSyncServer PreferredExecutionTarget="MonoDevelop.Default" />
 </Properties>

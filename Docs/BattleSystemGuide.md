@@ -49,27 +49,32 @@
 │                     │  │                             │
 │  ┌───────────────┐  │  │  ViewFighter[64]            │
 │  │ BattleFighter │  │  │  ViewProjectile[]           │
-│  │ × N (每角色)   │  │  │                             │
-│  │  ├ BehaviorTree│  │  │  消费 BattleEvent 驱动表现   │
-│  │  ├ 技能/被动   │  │  │                             │
+│  │ × N (每角色)   │  │  │  ViewPiercingProjectile[]  │
+│  │  ├ BehaviorTree│  │  │  ViewLightningCloud[]      │
+│  │  ├ 技能/被动   │  │  │  ViewChainLink[]           │
 │  │  ├ Buff系统    │  │  │                             │
-│  │  └ 碰撞/移动   │  │  │                             │
+│  │  └ 碰撞/移动   │  │  │  消费 BattleEvent 驱动表现   │
 │  ├───────────────┤  │  │                             │
 │  │ Projectile[]  │  │  │                             │
 │  │ AoEProjectile │  │  │                             │
+│  │ PiercingProj  │  │  │                             │
+│  │ LightningCloud│  │  │                             │
+│  │ PullEffect[]  │  │  │                             │
 │  └───────────────┘  │  │                             │
 └─────────────────────┘  └─────────────────────────────┘
              ▲                    ▲
              │ JSON               │ JSON
 ┌────────────┴────────────────────┴────────────────────┐
-│  CharacterConfig.json    BehaviorTreeConfig.json     │
-│  (角色数值+技能定义)       (AI行为树定义)               │
+│  CharacterConfig.json    SkillConfig.json            │
+│  (角色数值+技能引用)       (技能定义)                  │
+│  BattleSettings.json      BehaviorTreeConfig.json    │
+│  (全局战斗设置)            (AI行为树定义)              │
 └──────────────────────────────────────────────────────┘
 
 网络模式额外组件：
 ┌─────────────────┐         ┌─────────────────┐
 │ FrameSyncClient │◄───TCP──►│ FrameSyncServer │
-│  (客户端)        │  15Hz   │  (.NET 6 独立)   │
+│  (客户端)        │  15Hz   │  (.NET 8 独立)   │
 └─────────────────┘         └─────────────────┘
 ```
 
@@ -91,9 +96,14 @@
 | **BattleEvent** | 值类型事件结构，每帧产生，包含 Frame/Type/SourceId/TargetId/IntParam/PosRaw |
 | **BehaviorTree** | JSON 驱动的 AI 决策树，节点类型：selector / sequence / condition / action |
 | **BTRandom** | 确定性伪随机数生成器，由种子初始化，确保帧同步一致性 |
-| **Profession** | 职业枚举，决定索敌优先级：Warrior / Mage / Archer / Assassin / Support |
-| **CharacterType** | 角色类型枚举：Warrior / Archer / Assassin / Mage / Snowman / Healer |
-| **StateBits** | 位掩码表示角色状态（8 位）：Moving / Fleeing / Casting / CastUlt / Stunned / Stealthed / Slowed / Staggered |
+| **Resistance** | 抗性属性（百分比减伤），公式：`实际伤害 = 原始伤害 × (100 - 抗性) / 100` |
+| **CharacterType** | 角色类型枚举（13种）：Warrior / Archer / Assassin / Mage / Snowman / Healer / Witch / Barbarian / LightningMage / Paladin / ThornWarrior / SkeletonKing / SkeletonMinion |
+| **StateBits** | 位掩码表示角色状态（10 位，bit0~bit9）：Moving / Fleeing / Casting / CastUlt / Stunned / Stealthed / Slowed / Staggered / AtkBuffed / AtkDebuffed |
+| **PiercingProjectile** | 穿刺弹射物，直线飞行穿过所有敌人，每个敌人只受一次伤害 |
+| **LightningCloud** | 闪电云，固定位置持久性 AoE，周期性对范围内敌人造成伤害 |
+| **PullEffect** | 拉取效果，每帧将目标拉向施法者，拉取中目标硬直 |
+| **ReflectShield** | 反伤护盾运行时状态，持续帧数 + 反弹伤害百分比 |
+| **BonusResistance** | 光环被动提供的额外抗性，由 BattleLogic 每帧重算 |
 
 ---
 
@@ -102,8 +112,10 @@
 ```
 Assets/
 ├── Resources/
-│   ├── CharacterConfig.json      # 角色数值 + 技能定义 + 布阵 + 索敌优先级
-│   └── BehaviorTreeConfig.json   # 每种角色的 AI 行为树
+│   ├── CharacterConfig.json      # 角色数值 + 技能引用 + 布阵 + 索敌优先级
+│   ├── SkillConfig.json         # 技能定义（独立文件）
+│   ├── BattleSettings.json       # 全局战斗设置（场地/队伍/阵型/优先级）
+│   └── BehaviorTreeConfig.json  # AI 行为树定义
 ├── Scripts/
 │   ├── Battle/
 │   │   ├── BattleData.cs         # 枚举、结构体、配置加载器
@@ -111,9 +123,11 @@ Assets/
 │   │   ├── BattleBuff.cs         # Buff类型定义、模板、运行时结构
 │   │   ├── BattleLogic.cs        # 战斗主控（阶段管理、帧驱动）
 │   │   ├── Projectile.cs         # 追踪弹射物（弓箭、击退箭、魔法球）
-│   │   ├── AoEProjectile.cs      # 直线AoE弹射物（火球、冰球）
-│   │   ├── LocalBattleEntry.cs   # 本地单人模式入口
-│   │   └── BattleEntry.cs        # 网络模式入口
+│   │   ├── AoEProjectile.cs     # 直线AoE弹射物（火球、冰球）
+│   │   ├── PiercingProjectile.cs # 穿刺弹射物（闪电）
+│   │   ├── LightningCloud.cs     # 持久性AoE闪电云
+│   │   ├── LocalBattleEntry.cs  # 本地单人模式入口
+│   │   └── BattleEntry.cs       # 网络模式入口
 │   ├── BattleView/
 │   │   └── BattleView.cs         # 纯事件驱动的显示层
 │   └── Network/
@@ -123,7 +137,7 @@ Assets/
 │   └── FixSpriteImport.cs        # 精灵导入设置工具
 Tools/
 └── FrameSyncServer/
-    └── Program.cs                # .NET 6 帧同步服务器
+    └── Program.cs                # .NET 8 帧同步服务器
 ```
 
 ---
@@ -134,15 +148,28 @@ Tools/
 
 位于 `Assets/Resources/CharacterConfig.json`，由 `CharacterConfig` 静态类加载。
 
-#### 全局设置
+> **注意**：部分全局配置已拆分到独立文件中。
+
+#### 角色数值配置
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `ArenaHalf` | int | 场地半边长（正方形场地，坐标范围 [-ArenaHalf, ArenaHalf]） |
-| `TeamSize` | int | 每队角色数量（双方各选 TeamSize 个） |
-| `InterruptChance` | int | 全局打断触发概率（百分比），普攻前摇或移动中受伤时的打断几率 |
-| `Formation` | FormationPos[] | P1方布阵位置（P2方自动 X 取反镜像） |
-| `TargetPriority` | array | 每个职业的索敌优先级列表 |
+| `MaxHp` | int | 最大血量 |
+| `MoveSpeed` | int | 移动速度 |
+| `TurnSpeed` | int | 转向速度（弧度/秒） |
+| `CollisionRadius` | float | 碰撞半径 |
+| `StaggerDuration` | int | 被打断后僵直帧数（0=不可被打断） |
+| `Resistance` | int | 抗性（百分比减伤，默认50） |
+| `HeadIcon` | string | 头像精灵路径（Resources下） |
+| `Profession` | string | 职业名 |
+| `Passive` | string | 被动技能 ID（引用 Skills 数组中的被动技能） |
+| `NormalAttack` | string | 普攻技能 ID |
+| `Skill2` | string | 副技能 ID |
+| `Ultimate` | string | 大招技能 ID |
+
+#### 索敌优先级配置
+
+在 `TargetPriority` 数组中配置每个职业的索敌优先级列表。
 
 #### 技能定义 — Skills 数组
 
@@ -167,23 +194,40 @@ Tools/
 
 **已有技能类型及 Param 含义：**
 
-| Type | 说明 | Param1 | Param2 |
-|------|------|--------|--------|
-| `MeleeAttack` | 近战攻击。Param1>0 为锥形AoE | AoE角度（度） | — |
-| `RangedAttack` | 远程追踪弹射物普攻 | 弹射物速度 | — |
-| `AoEProjectile` | 直线飞行AoE弹射物，碰到敌人或最大距离后爆炸 | 弹射物速度 | 爆炸半径 |
+| Type | 说明 | Param1 | Param2 | Param3 |
+|------|------|--------|--------|--------|
+| `MeleeAttack` | 近战攻击 | AoE角度（度，>0为锥形） | — | — |
+| `RangedAttack` | 远程追踪弹射物普攻 | 弹射物速度 | — | — |
+| `AoEProjectile` | 直线飞行AoE弹射物，碰到敌人或最大距离后爆炸 | 弹射物速度 | 爆炸半径 | — |
 | `Instant` | 立即生效，根据TargetTeam/TargetScope选目标 | — | — |
-| `Blink` | 瞬移到敌人身前 | — | — |
-| `DashStrike` | 冲刺到敌人身前 + 伤害 | — | — |
-| `KnockbackArrow` | 击退弹射物，命中后推开目标 | 弹射物速度 | 击退距离 |
-| `Stealth` | 隐身（免疫索敌，仍受AoE伤害） | 隐身帧数 | — |
-| `ReactBlink` | 被动瞬移，受攻击后自动后撤 | 瞬移距离 | — |
-| `SummonPet` | 召唤召唤物（继承主人索敌规则） | 存活帧数 | 召唤物血量 |
-| `FleeOnHit` | 被动：受击后向远离敌人方向后撤 | 后撤距离 | — |
-| `CritStrike` | 被动：普攻概率造成双倍伤害 | 触发概率% | 伤害倍率% |
-| `DodgeBlock` | 被动：受伤概率完全格挡 | 触发概率% | — |
-| `UltCDReduce` | 被动：造成伤害概率减少大招CD | 触发概率% | 减少帧数 |
-| `Lifesteal` | 被动：造成伤害概率回复血量 | 触发概率% | 吸血百分比% |
+| `Blink` | 瞬移到敌人身前 | — | — | — |
+| `DashStrike` | 冲刺到敌人身前 + 伤害 | — | — | — |
+| `KnockbackArrow` | 击退弹射物，命中后推开目标 | 弹射物速度 | 击退距离 | — |
+| `Stealth` | 隐身（免疫索敌，仍受AoE伤害） | 隐身帧数 | — | — |
+| `ReactBlink` | 被动瞬移，受攻击后自动后撤 | 瞬移距离 | — | — |
+| `SummonPet` | 召唤召唤物（继承主人索敌规则） | 存活帧数 | 召唤物血量 | — |
+| `FleeOnHit` | 被动：受击后向远离敌人方向后撤 | 后撤距离 | — | — |
+| `CritStrike` | 被动：普攻概率造成双倍伤害 | 触发概率% | 伤害倍率% | — |
+| `DodgeBlock` | 被动：受伤概率完全格挡 | 触发概率% | — | — |
+| `UltCDReduce` | 被动：造成伤害概率减少大招CD | 触发概率% | 减少帧数 | — |
+| `Lifesteal` | 被动：造成伤害概率回复血量 | 触发概率% | 吸血百分比% | — |
+| `PierceLine` | 穿刺直线弹射物，穿过所有敌人 | 弹射物速度 | — | — |
+| `ChainLightning` | 连锁闪电，命中后链接最近敌人 | 连接距离上限 | 最大连接数 | — |
+| `AoEZone` | 持久性AoE区域（闪电云） | 区域半径 | 伤害间隔帧数 | 持续帧数 |
+| `HealPercent` | 按目标最大HP百分比治疗 | 治疗百分比 | — | — |
+| `Revive` | 复活阵亡友军 | 复活后HP百分比 | — | — |
+| `AuraResistance` | 被动光环：附近友军增加抗性 | 抗性加成百分比 | 光环范围 | — |
+| `Pull` | 拉取技能：将敌人拉到身边 | 拉取范围 | 拉取持续帧数 | — |
+| `ReflectShield` | 反伤护盾 | 持续帧数 | 反弹百分比 | — |
+| `DamageAbsorb` | 被动：概率伤害转治疗 | 触发概率% | — | — |
+| `SummonPersistent` | 召唤永久召唤物（无时间限制） | 最大召唤数量 | 召唤物血量 | — |
+| `DetonateSummons` | 引爆所有己方召唤物后重新召唤 | 新召唤物血量 | — | — |
+| `SelfRevive` | 被动：死亡后延迟复活 | 复活延迟帧数 | 最大复活次数 | — |
+| `DeathExplode` | 被动：死亡时自爆 | 爆炸半径 | 爆炸伤害 | — |
+| `OnHitDebuff` | 被动：普攻命中附加debuff | — | — | — |
+| `ReactLightning` | 被动：受击概率反射穿刺闪电 | 触发概率% | — | — |
+
+**TargetScope 新增选项**：`RandomN`（如 `Random3` 选择N个随机敌人）
 
 #### 索敌优先级 — TargetPriority 数组
 
@@ -214,16 +258,59 @@ Tools/
 
 #### 当前角色一览
 
-| 角色 | 职业 | HP | 移速 | 僵直帧 | 被动 | 普攻 | 副技能 | 大招 |
+| 角色 | 职业 | HP | 抗性 | 僵直帧 | 被动 | 普攻 | 副技能 | 大招 |
 |------|------|-----|------|--------|------|------|--------|------|
-| Warrior | 战士 | 2000 | 1 | 8 | 暴击(30%) | 斩击(锥形AoE) | 眩晕击 | 裂地斩(冲刺) |
-| Archer | 射手 | 1500 | 3 | 12 | 受击后撤 | 射击(追踪弹) | 击退箭 | 箭雨(全图AoE) |
-| Assassin | 刺客 | 1000 | 2 | 10 | 格挡(25%) | 刺击(单体) | 瞬移 | 隐身 |
-| Mage | 法师 | 1200 | 2 | 15 | 奥术涌流(CD减少) | 火球术(AoE弹射) | 闪避瞬移(被动) | 召唤雪人 |
-| Snowman | 法师(召唤物) | 500 | 1 | 0 | 无 | 冰球(AoE+减速) | — | — |
-| Healer | 辅助 | 1300 | 2 | 12 | 生命汲取(30%) | 魔法球(追踪弹) | 治愈术(单体) | 圣光普照(群体) |
+| Warrior | 战士 | 2500 | 50 | 8 | 暴击(30%) | 斩击(锥形AoE) | 眩晕击 | 裂地斩(冲刺) |
+| Archer | 射手 | 1500 | 50 | 12 | 受击后撤 | 射击(追踪弹) | 击退箭 | 箭雨(全图AoE) |
+| Assassin | 刺客 | 1500 | 40 | 10 | 格挡(25%) | 刺击(单体) | 瞬移 | 隐身 |
+| Mage | 法师 | 1200 | 35 | 15 | 奥术涌流(CD减少) | 火球术(AoE弹射) | 闪避瞬移(被动) | 召唤雪人 |
+| Snowman | 法师(召唤物) | 500 | 60 | 0 | 无 | 冰球(AoE+减速) | — | — |
+| Healer | 辅助 | 1300 | 30 | 12 | 生命汲取(30%) | 魔法球(追踪弹) | 治愈术(单体) | 圣光普照(群体) |
+| Witch | 辅助 | 1100 | 40 | 14 | 诅咒之触(攻速debuff) | 魔法球(追踪弹) | 战意鼓舞(攻速buff) | 时间枷锁(群体攻速debuff) |
+| Barbarian | 战士 | 2800 | 60 | 6 | 嗜血(100%吸血30%) | 重击(单体) | 战吼(攻击力buff) | 威吓(群体攻击力debuff) |
+| LightningMage | 法师 | 1200 | 35 | 10 | 雷电反击(40%反射) | 闪电箭(穿刺) | 连锁闪电 | 雷暴(闪电云) |
+| Paladin | 辅助 | 2000 | 60 | 6 | 圣光护盾(抗性光环) | 圣光斩(近战) | 圣光祝福(30%百分比治疗) | 神圣复活 |
+| ThornWarrior | 战士 | 2200 | 55 | 6 | 荆棘之躯(15%吸伤) | 荆棘击(近战) | 荆棘锁链(拉取) | 荆棘壁垒(反伤) |
+| SkeletonKing | 战士 | 2000 | 50 | 7 | 不死之躯(复活1次) | 骨刃斩击(近战) | 召唤骷髅兵(永久) | 亡灵引爆 |
+| SkeletonMinion | 战士(召唤物) | 400 | 30 | 5 | 亡灵自爆(死亡AoE) | 骨爪(近战) | — | — |
 
-### 4.2 BehaviorTreeConfig.json
+### 4.2 SkillConfig.json
+
+位于 `Assets/Resources/SkillConfig.json`，由 `SkillConfigLoader` 静态类加载。
+
+每个技能是独立定义的，角色通过 ID 引用。
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `Id` | string | ✅ | 唯一标识，角色配置中引用此 ID |
+| `Name` | string | ✅ | 显示名称 |
+| `Type` | string | ✅ | 技能类型（见上表） |
+| `Damage` | int | | 正数=伤害，负数=治疗 |
+| `Range` | int | | 攻击范围（普攻用） |
+| `Cooldown` | int | ✅ | 冷却帧数（15帧 = 1秒） |
+| `Windup` | int | | 前摇帧数（施法开始到伤害结算） |
+| `Recovery` | int | | 后摇帧数（伤害结算后到可行动） |
+| `Param1` | int | | 技能特有参数1（含义因Type而异） |
+| `Param2` | int | | 技能特有参数2 |
+| `Param3` | int | | 技能特有参数3 |
+| `TargetTeam` | string | | `"Enemy"` / `"Ally"` — 作用于敌方还是友方 |
+| `TargetScope` | string | | `"Single"` / `"All"` / `"LowestHp"` / `"RandomN"` — 单体/全体/血量最低/随机N个 |
+| `Buffs` | BuffConfig[] | | 技能附加的buff列表 |
+
+### 4.3 BattleSettings.json
+
+位于 `Assets/Resources/BattleSettings.json`，包含全局战斗设置。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `ArenaHalf` | int | 场地半边长（正方形场地，坐标范围 [-ArenaHalf, ArenaHalf]） |
+| `TeamSize` | int | 每队角色数量（双方各选 TeamSize 个） |
+| `InterruptChance` | int | 全局打断触发概率（百分比） |
+| `Formation` | FormationPos[] | P1方布阵位置（P2方自动 X 取反镜像） |
+| `TargetPriority` | array | 每个职业的索敌优先级列表 |
+| `Resistance` | int | 默认抗性值（百分比） |
+
+### 4.4 BehaviorTreeConfig.json
 
 位于 `Assets/Resources/BehaviorTreeConfig.json`，所有角色共用一棵统一行为树（`Default`）。
 
@@ -326,27 +413,39 @@ Tools/
 #### 关键枚举
 
 ```csharp
-enum CharacterType : byte { None=0, Warrior=1, Archer=2, Assassin=3, Mage=4, Snowman=5, Healer=6 }
-enum Profession : byte    { None=0, Warrior=1, Mage=2, Archer=3, Assassin=4, Support=5 }
+enum CharacterType : byte {
+    None=0, Warrior=1, Archer=2, Assassin=3, Mage=4, Snowman=5,
+    Healer=6, Witch=7, Barbarian=8, LightningMage=9,
+    Paladin=10, ThornWarrior=11, SkeletonKing=12, SkeletonMinion=13
+}
+enum Profession : byte {
+    None=0, Warrior=1, Mage=2, Archer=3, Assassin=4, Support=5
+}
 enum BattleEventType : byte {
     CharSelected, BattleStart, Move, NormalAttack, UltimateCast, Damage,
     HpChanged, Death, BattleEnd, FighterSpawn, StateChanged, PhaseChanged,
     CooldownUpdate, ProjectileSpawn, ProjectileHit, Skill2Cast, AoEExplosion,
-    BuffApplied, HealApplied
+    BuffApplied, HealApplied,
+    ChainLightningLink, LightningCloudSpawn, FighterRevive,
+    PullStart, ReflectDamage, SummonExplode, SelfRevive
 }
 ```
 
 #### 配置加载器
 
 - **`CharacterConfig`** — 从 `CharacterConfig.json` 加载，提供:
-  - `Get(CharacterType) → CharacterStats` — 获取角色数值
-  - `TeamSize` / `ArenaHalf` / `InterruptChance` / `Formation` — 全局参数
+  - `Get(CharacterType) → CharacterStats` — 获取角色数值（含 Resistance）
+  - `TeamSize` / `ArenaHalf` / `InterruptChance` / `Formation` — 全局参数（部分已迁移到 BattleSettings）
   - `ParseProfession(string) → Profession` — 字符串→枚举
   - `GetTargetPriority(Profession) → Profession[]` — 索敌优先级
   - `Reload()` — 热重载配置
 
-- **`SkillConfigLoader`** — 从 Skills 数组按 ID 索引:
+- **`SkillConfigLoader`** — 从 `SkillConfig.json` 加载技能定义，按 ID 索引:
   - `Get(string id) → SkillConfig`
+  - `Reload()`
+
+- **`BattleSettings`** — 从 `BattleSettings.json` 加载全局战斗设置:
+  - `ArenaHalf` / `TeamSize` / `InterruptChance` / `Formation` / `TargetPriority`
   - `Reload()`
 
 - **`BTConfigLoader`** — 从 `BehaviorTreeConfig.json` 加载统一行为树:
@@ -360,10 +459,12 @@ enum BattleEventType : byte {
 
 ```
 Init(type, playerId, teamId, startPos)
-  → 从 CharacterConfig.Get() 读取数值（含 StaggerDuration）
+  → 从 CharacterConfig.Get() 读取数值（含 StaggerDuration、Resistance）
   → 从 SkillConfigLoader.Get() 读取三个技能 + 被动技能配置
   → 设置 _normalAtkType/_skill2Type/_ultType/_passiveType
-  → 设置职业和索敌优先级
+  → 设置职业、索敌优先级、BonusResistance
+  → 初始化反伤护盾状态 (_reflectFramesLeft/_reflectPercent)
+  → 初始化自我复活状态 (_selfReviveDelay/_selfRevivesLeft)
   → 副技能和大招 CD 初始满（开场不能立即释放）
 
 BuildBT(allFighters, events)
@@ -375,20 +476,24 @@ BuildBT(allFighters, events)
 
 ```
 1. 选择目标  → FindNearestEnemy()（职业优先级索敌，隐身敌人跳过）
-2. CD 递减   → 普攻/大招/副技能
-3. Buff 计时  → TickBuffs()（减速/眩晕到期移除，刷新 MoveSpeed/IsSlowed/IsStunned）
-4. 隐身计时  → _stealthFramesLeft 倒计时
-5. 僵直计时  → _staggerFramesLeft 倒计时，到 0 时解除 IsStaggered
-6. 决策优先级：
+2. 光环被动  → 每帧重算 BonusResistance（抗性光环）
+3. CD 递减   → 普攻/大招/副技能
+4. Buff 计时  → TickBuffs()（减速/眩晕到期移除，刷新 MoveSpeed/IsSlowed/IsStunned）
+5. 隐身计时  → _stealthFramesLeft 倒计时
+6. 僵直计时  → _staggerFramesLeft 倒计时，到 0 时解除 IsStaggered
+7. 反伤护盾计时 → _reflectFramesLeft 倒计时
+8. 自我复活倒计时 → _selfReviveDelay 倒计时，触发复活逻辑
+9. 决策优先级：
    a. 大招请求 → UltRequested + CD好 → 打断一切状态（含僵直/眩晕），立即施放
    b. 僵直中   → 什么都不做，等待僵直结束
    c. 眩晕中   → 什么都不做，等待眩晕结束
-   d. 施法锁定 → 前摇倒计时 → 伤害结算 → 后摇倒计时
-   e. 行为树   → _bt.Tick() 做决策
-7. 发送事件  → Move（位置+朝向）、StateChanged（状态位掩码）、CooldownUpdate
+   d. 拉取中   → 什么都不做，等待拉取结束
+   e. 施法锁定 → 前摇倒计时 → 伤害结算 → 后摇倒计时
+   f. 行为树   → _bt.Tick() 做决策
+10. 发送事件  → Move（位置+朝向）、StateChanged（状态位掩码）、CooldownUpdate
 ```
 
-**状态位掩码（StateChanged 事件的 IntParam）：**
+**状态位掩码（StateChanged 事件的 IntParam，共10位 bit0~bit9）：**
 
 | 位 | 常量 | 含义 |
 |----|------|------|
@@ -407,9 +512,26 @@ BuildBT(allFighters, events)
 
 每种技能类型在代码中有独立的 `switch/if` 分支处理：
 
-- **`ExecuteNormalAttack`** — 按 `_normalAtkType` 派发：RangedAttack（追踪弹）、MeleeAttack（锥形AoE/单体）、AoEProjectile（直线AoE弹）
-- **`ExecuteSkill2`** — 按 `_skill2Type` 派发：Blink / StunStrike / KnockbackArrow / Instant / ReactBlink
-- **`ExecuteUltimate`** — 按 `_ultType` 派发：DashStrike / Stealth / ArrowRain / SummonPet / Instant / 默认单体
+- **`ExecuteNormalAttack`** — 按 `_normalAtkType` 派发：
+  - `RangedAttack`（追踪弹）
+  - `MeleeAttack`（锥形AoE/单体）
+  - `AoEProjectile`（直线AoE弹）
+  - `PierceLine`（穿刺闪电）
+
+- **`ExecuteSkill2`** — 按 `_skill2Type` 派发：
+  - `Blink` / `StunStrike` / `KnockbackArrow`
+  - `ReactBlink` / `HealPercent` / `Pull`
+  - `ChainLightning` / `SummonPersistent`
+  - `Instant`（AtkUp/AtkSpeedUp等buff技能）
+
+- **`ExecuteUltimate`** — 按 `_ultType` 派发：
+  - `DashStrike` / `Stealth` / `ArrowRain` / `SummonPet`
+  - `AoEZone`（闪电云）
+  - `Revive`（复活友军）
+  - `ReflectShield`（反伤护盾）
+  - `DetonateSummons`（引爆召唤物）
+  - `Instant`（群体buff/debuff）
+  - 默认单体
 
 ### 5.3 BattleLogic.cs
 
@@ -417,19 +539,26 @@ BuildBT(allFighters, events)
 
 | 阶段 | 说明 |
 |------|------|
-| `Selecting` | 双方选角，MoveX 传递角色类型（1~6），选满 TeamSize 个后自动开始 |
+| `Selecting` | 双方选角，MoveX 传递角色类型（1~13），选满 TeamSize 个后自动开始 |
 | `Fighting` | 15Hz 驱动所有 BattleFighter，弹射物，碰撞分离，召唤物生命周期，胜负判定 |
 | `Ended` | 战斗结束，显示结果 |
 
 **战斗 Tick 流水线：**
 1. 读取大招指令 → ButtonFire → 该队所有存活角色 `UltRequested = true`
-2. 驱动所有角色 `BattleFighter.Tick()`
-3. 收集新弹射物（`PendingProjectiles` / `PendingAoEProjectiles`）
-4. 处理召唤请求（`PendingSummons`）
-5. 驱动弹射物飞行
-6. 碰撞分离（`ResolveCollisions`）
-7. 召唤物生命周期（主人死亡→消失，存活时间到期→消失）
-8. 胜负判定（一方所有非召唤物角色阵亡即败）
+2. 光环被动重算 → 每帧重算所有人 BonusResistance
+3. 驱动所有角色 `BattleFighter.Tick()`
+4. 收集新弹射物（`PendingProjectiles` / `PendingAoEProjectiles` / `PendingPiercingProjectiles`）
+5. 处理召唤请求（`PendingSummons` / `PendingLightningClouds` / `PendingPullEffects`）
+6. 驱动弹射物飞行（追踪弹 / AoE弹 / 穿刺弹 / 闪电云 / 拉取效果）
+7. 碰撞分离（`ResolveCollisions`）
+8. 召唤物生命周期（主人死亡→消失，存活时间到期→消失）
+9. 死亡爆炸处理（DeathExplode被动）
+10. 自我复活倒计时（SelfRevive被动）
+11. 胜负判定（待复活的不算阵亡）
+
+> **FighterSpawn 事件 TargetId 编码**：
+> `TargetId = (byte)((fi.TeamId << 4) | (int)fi.CharType)`
+> 解码：`TeamId = TargetId >> 4, CharType = TargetId & 0x0F`
 
 ### 5.4 LocalBattleEntry.cs
 
@@ -534,11 +663,15 @@ BeginCast(isUlt) → 进入 Casting 状态
 
 `ApplyDamage(target, damage, frame)` 流程：
 1. 格挡判定 → `target.TryDodgeBlock()`，成功则跳过伤害
-2. 扣除血量 → 发送 Damage + HpChanged 事件
-3. 攻击者被动触发 → `OnDealDamage()`（吸血、大招CD减少）
-4. **打断判定** → `target.TryInterrupt()`（见第10节）
-5. 目标被动/反应 → `TryReactSkill2()` + `TryPassive()`
-6. 血量 ≤ 0 → 发送 Death 事件
+2. **抗性减伤** → `target.ApplyResistance(damage)` → `实际伤害 = 原始伤害 × (100 - 抗性) / 100`
+3. **DefUp减伤** → 按比例减少实际伤害（至少 1 点）
+4. 扣除血量 → 发送 Damage + HpChanged 事件
+5. 攻击者被动触发 → `OnDealDamage()`（吸血、大招CD减少）
+6. **反伤护盾** → `_reflectFramesLeft > 0` 时反弹伤害给攻击者
+7. **打断判定** → `target.TryInterrupt()`（见第10节）
+8. 目标被动/反应 → `TryReactSkill2()` + `TryPassive()`
+9. **DamageAbsorb伤害吸收** → 概率将伤害转为治疗
+10. 血量 ≤ 0 → 发送 Death 事件，检查 SelfRevive 被动（延迟复活）
 
 ---
 
@@ -564,6 +697,7 @@ BuffConfig (JSON配置) → BuffTemplate (运行时模板) → Buff (实例)
 | `DefUp` | 减少受到的伤害 | 0.3 = 受伤减少 30% | 增益 |
 | `AtkSpeedUp` | 增加攻击速度（缩短普攻CD/前摇/后摇） | 0.3 = 攻速提升 30% | 增益 |
 | `AtkSpeedDown` | 降低攻击速度（增加普攻CD/前摇/后摇） | 0.3 = 攻速降低 30% | 减益 |
+| `AtkDown` | 降低攻击力 | 0.4 = 攻击力降低 40% | 减益 |
 
 ### 增益/减益标记
 
@@ -607,13 +741,21 @@ BuffConfig (JSON配置) → BuffTemplate (运行时模板) → Buff (实例)
 | `DodgeBlock` | 格挡 | 受到伤害时（含弹射物） | Param1% 概率完全免疫伤害 |
 | `UltCDReduce` | 奥术涌流 | 造成伤害后（召唤物除外） | Param1% 概率减少大招CD Param2 帧 |
 | `Lifesteal` | 生命汲取 | 造成伤害后（召唤物除外） | Param1% 概率回复伤害 Param2% 的血量 |
+| `OnHitDebuff` | 诅咒之触 | 普攻命中敌人后 | 自动附加Buffs中定义的debuff |
+| `AuraResistance` | 圣光护盾 | 被动光环（每帧由BattleLogic计算） | 附近友军增加抗性 |
+| `ReactLightning` | 雷电反击 | 受到攻击后 | Param1% 概率发射穿刺闪电 |
+| `DamageAbsorb` | 荆棘之躯 | 受到伤害时 | Param1% 概率将伤害转为治疗 |
+| `SelfRevive` | 不死之躯 | 死亡后 | 延迟 Param1 帧后原地复活满血，最多 Param2 次 |
+| `DeathExplode` | 亡灵自爆 | 死亡时 | 对半径 Param1 内敌人造成 Param2 伤害 |
 
 ### 触发链路
 
-- **受击被动**（DodgeBlock / FleeOnHit）：在 `ApplyDamage()` 和弹射物命中时判定
-- **攻击者被动**（CritStrike）：在 `ExecuteNormalAttack()` 中伤害结算前判定
+- **受击被动**（DodgeBlock / FleeOnHit / DamageAbsorb / ReactLightning）：在 `ApplyDamage()` 和弹射物命中时判定
+- **攻击者被动**（CritStrike / OnHitDebuff）：在 `ExecuteNormalAttack()` 中伤害结算前/后判定
 - **造成伤害后被动**（UltCDReduce / Lifesteal）：通过 `OnDealDamage()` 在伤害结算后触发，弹射物命中也会调用
-- **反应式副技能**（ReactBlink）：受击后自动触发，有独立 CD
+- **反应式副技能**（ReactBlink / ReactLightning）：受击后自动触发，有独立 CD
+- **光环被动**（AuraResistance）：由 BattleLogic 每帧重算 BonusResistance
+- **死亡被动**（SelfRevive / DeathExplode）：死亡事件后触发
 
 ### 当前角色被动分配
 
@@ -625,6 +767,13 @@ BuffConfig (JSON配置) → BuffTemplate (运行时模板) → Buff (实例)
 | Mage | UltCDReduce | 30%概率，减15帧 |
 | Snowman | 无 | — |
 | Healer | Lifesteal | 30%概率，吸血50% |
+| Witch | OnHitDebuff | 攻速debuff |
+| Barbarian | Lifesteal (100%变体) | 100%触发，30%吸血 |
+| LightningMage | ReactLightning | 40%概率反射穿刺闪电 |
+| Paladin | AuraResistance | 20%抗性加成，光环范围5 |
+| ThornWarrior | DamageAbsorb | 15%概率吸伤转治疗 |
+| SkeletonKing | SelfRevive | 60帧延迟复活，最多1次 |
+| SkeletonMinion | DeathExplode | 半径5，伤害100 |
 
 ---
 
@@ -673,21 +822,30 @@ BuffConfig (JSON配置) → BuffTemplate (运行时模板) → Buff (实例)
 
 ### 触发位置
 
-`TryInterrupt()` 在以下三处被调用：
+`TryInterrupt()` 在以下五处被调用：
 - `ApplyDamage()` — 直接伤害（近战/即时技能）
 - `Projectile.Tick()` — 追踪弹命中
 - `AoEProjectile.Explode()` — AoE 爆炸伤害
+- `PiercingProjectile.Tick()` — 穿刺弹命中
+- `LightningCloud.Tick()` — 闪电云伤害
 
 ### 当前配置值
 
-| 角色 | StaggerDuration | 约等于 |
-|------|----------------|--------|
-| Warrior | 8帧 | ~0.5秒（战士护甲厚，僵直短） |
-| Archer | 12帧 | ~0.8秒 |
-| Assassin | 10帧 | ~0.67秒 |
-| Mage | 15帧 | 1秒（法师脆弱，僵直长） |
-| Snowman | 0帧 | 不可被打断 |
-| Healer | 12帧 | ~0.8秒 |
+| 角色 | StaggerDuration | 抗性 | 约等于 |
+|------|----------------|------|--------|
+| Warrior | 8帧 | 50 | ~0.5秒 |
+| Archer | 12帧 | 50 | ~0.8秒 |
+| Assassin | 10帧 | 40 | ~0.67秒 |
+| Mage | 15帧 | 35 | 1秒（法师脆弱，僵直长） |
+| Snowman | 0帧 | 60 | 不可被打断 |
+| Healer | 12帧 | 30 | ~0.8秒 |
+| Witch | 14帧 | 40 | ~0.93秒 |
+| Barbarian | 6帧 | 60 | ~0.4秒 |
+| LightningMage | 10帧 | 35 | ~0.67秒 |
+| Paladin | 6帧 | 60 | ~0.4秒 |
+| ThornWarrior | 6帧 | 55 | ~0.4秒 |
+| SkeletonKing | 7帧 | 50 | ~0.47秒 |
+| SkeletonMinion | 5帧 | 30 | ~0.33秒 |
 
 ---
 
@@ -700,7 +858,7 @@ BuffConfig (JSON配置) → BuffTemplate (运行时模板) → Buff (实例)
 - **飞行方式**：以固定速度追踪目标当前位置，自动转向
 - **命中判定**：当前帧步长 ≥ 距目标距离时命中
 - **免疫判定**：隐身目标免疫伤害，弹射物消失
-- **伤害流程**：格挡判定 → 扣血 → 攻击者被动 → 打断判定 → 目标被动/反应
+- **伤害流程**：格挡判定 → 抗性减伤 → 扣血 → 攻击者被动 → 反伤护盾 → 打断判定 → 目标被动/反应
 - **击退**：`KnockbackDist > 0` 时沿飞行方向推开目标，受场地边界限制
 - 击退箭不触发目标的反应式副技能和被动
 
@@ -712,15 +870,45 @@ BuffConfig (JSON配置) → BuffTemplate (运行时模板) → Buff (实例)
 - **爆炸触发**：碰到敌人碰撞体 / 飞出场地 / 超过最大飞行距离
 - **爆炸效果**：对爆炸半径内所有敌人造成伤害
 - **Buff 施加**：命中后可施加配置的 Buff（如冰球的减速效果）
-- **同样触发**：格挡、攻击者被动、打断、目标反应式技能/被动
+- **同样触发**：格挡、抗性减伤、攻击者被动、打断、目标反应式技能/被动
+
+### 穿刺弹射物 (PiercingProjectile)
+
+用于闪电法师的普攻和连锁闪电。
+
+- **飞行方式**：直线飞行穿过所有敌人，每个敌人只受一次伤害
+- **命中判定**：与敌人碰撞体相交时命中（飞过敌人后不再追踪）
+- **连锁闪电**：命中后如果还有未连接目标，链接最近敌人继续伤害
+- **同样触发**：格挡、抗性减伤、攻击者被动、打断、目标反应式技能/被动
+- 发送 `ChainLightningLink` 事件用于显示连接线
+
+### 闪电云 (LightningCloud)
+
+用于闪电法师的大招（雷暴）。
+
+- **位置固定**：创建时确定位置，不跟随施法者
+- **周期性伤害**：每 N 帧（Param2）对范围内敌人造成伤害
+- **有存活时间**：持续 Param3 帧后自动消失
+- **光环被动协同**：闪电云也算作雷电法师的"附近"，触发 AuraResistance
+- 发送 `LightningCloudSpawn` 事件用于显示闪电云效果
+
+### 拉取效果 (PullEffect)
+
+用于荆棘战士的副技能（荆棘锁链）。
+
+- **创建**：由施法者指向目标，持续 Param2 帧
+- **每帧效果**：将目标拉向施法者，拉取中目标硬直（无法移动/施法）
+- **结束条件**：拉取完成或目标/施法者死亡后移除
+- 发送 `PullStart` 事件用于显示拉取效果
 
 ### 弹射物生命周期
 
 ```
-BattleFighter 创建弹射物 → 加入 PendingProjectiles/PendingAoEProjectiles
+BattleFighter 创建弹射物 → 加入 PendingProjectiles/PendingAoEProjectiles/PendingPiercingProjectiles
   → BattleLogic 收集并管理
   → 每帧 Tick 驱动飞行
   → 命中/爆炸后移除
+闪电云和拉取效果也由 BattleLogic 统一驱动和管理
 ```
 
 ---
@@ -775,7 +963,7 @@ selector
 
 ### 服务器 (FrameSyncServer)
 
-- **运行环境**：.NET 6 独立控制台应用
+- **运行环境**：.NET 8 独立控制台应用
 - **启动**：`dotnet run -- [port=9100] [tickRate=15]`
 - **房间**：最多 4 人，所有人 Ready 后自动开始
 - **延迟模拟**：每条 FrameData 随机延迟 30~550ms 发送（模拟网络抖动），控制消息立即发送
@@ -802,12 +990,12 @@ selector
 ### 步骤 1：修改枚举 (BattleData.cs)
 
 ```csharp
-enum CharacterType : byte { ..., NewChar = 7 }
+enum CharacterType : byte { ..., NewChar = 14 }
 ```
 
 如需新职业也在 `Profession` 枚举中添加。
 
-### 步骤 2：定义技能 (CharacterConfig.json)
+### 步骤 2：定义技能 (SkillConfig.json)
 
 在 `Skills` 数组中添加新角色的技能（普攻/副技能/大招/被动）。
 
@@ -820,6 +1008,7 @@ enum CharacterType : byte { ..., NewChar = 7 }
   "TurnSpeed": 10,
   "CollisionRadius": 0.5,
   "StaggerDuration": 10,
+  "Resistance": 50,
   "HeadIcon": "HeadIcons/newchar",
   "Profession": "Warrior",
   "Passive": "some_passive_id",
@@ -829,13 +1018,13 @@ enum CharacterType : byte { ..., NewChar = 7 }
 }
 ```
 
-### 步骤 4：配置索敌优先级 (CharacterConfig.json)
+### 步骤 4：配置索敌优先级 (BattleSettings.json)
 
 在 `TargetPriority` 中添加新角色的职业优先级，并更新其他职业的优先级列表。
 
 ### 步骤 5：配置行为树 (BehaviorTreeConfig.json)
 
-添加新角色的 AI 行为树。参考近战（Warrior）或远程（Archer）模板。
+所有角色共用统一行为树 `Default`，无需单独配置。
 
 ### 步骤 6：修改代码 (BattleData.cs)
 
@@ -848,11 +1037,11 @@ public CharacterStats NewChar;
 
 ### 步骤 7：修改显示层 (BattleView.cs)
 
-为新角色添加颜色和显示名配置。
+为新角色添加颜色和显示名配置。参考现有角色的 `CHAR_COLORS` 和 `CHAR_NAMES`。
 
 ### 步骤 8：更新 Formation（如果 TeamSize 增加）
 
-在 `Formation` 数组中添加新的布阵位置。
+在 `BattleSettings.json` 的 `Formation` 数组中添加新的布阵位置。
 
 ---
 
@@ -923,7 +1112,7 @@ public CharacterStats NewChar;
 
 ### 步骤 5：添加新状态位（如需要）
 
-1. `BattleFighter` 中添加 `StateBit_XXX` 常量（当前使用到 bit7）
+1. `BattleFighter` 中添加 `StateBit_XXX` 常量（当前已使用到 bit9）
 2. 添加对应的 bool 标志和计时字段
 3. 在 `Tick()` 的 curState 计算中添加新位
 4. 在 `BattleView.OnStateChanged()` 中解析新位
@@ -973,10 +1162,12 @@ public CharacterStats NewChar;
 
 ### 召唤物特殊规则
 
-- 召唤物有 `Master` 引用和 `LifetimeLeft` 生存计时
+- 召唤物有 `Master` 引用和 `LifetimeLeft` 生存计时（永久召唤物无时间限制）
 - 主人死亡 → 召唤物立即消失
 - 召唤物不触发主人的攻击者被动（UltCDReduce/Lifesteal）
 - 召唤物按 `IsSummon` 标记在胜负判定时排除
+- **永久召唤物**（`SummonPersistent`）：无时间限制，但有最大数量限制，超出时旧召唤物被移除
+- **引爆召唤物**（`DetonateSummons`）：先引爆所有现有召唤物（触发死亡效果），再召唤新的
 
 ### 打断与眩晕的区别
 

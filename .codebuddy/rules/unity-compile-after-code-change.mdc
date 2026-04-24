@@ -1,0 +1,39 @@
+---
+description: 
+alwaysApply: true
+enabled: true
+updatedAt: 2026-04-24T07:47:50.301Z
+provider: 
+---
+
+# Unity 编译检查规则
+
+每次修改 `.cs` 代码文件后，必须调用 Coplay MCP 让 Unity 编译代码，检查是否有报错信息。
+
+## 编译检查步骤
+
+使用 coplay-mcp-server 的 MCP 协议调用，需按顺序执行：
+
+1. **初始化 MCP 连接**：发送 `initialize` 请求
+2. **发送 `notifications/initialized` 通知**
+3. **设置项目根路径**：调用 `set_unity_project_root`，参数名 `unity_project_root`，值为项目绝对路径
+4. **检查编译错误**：调用 `check_compile_errors`，无参数
+5. 如果有编译错误，修复后重新检查
+6. 确认无编译错误后才算完成
+
+## 调用方式
+
+使用 `/tmp/coplay_compile.py` 脚本，该脚本封装了完整的 MCP 协议交互流程。
+
+## 工具参数备忘
+
+| 工具名 | 参数 |
+|--------|------|
+| `set_unity_project_root` | `unity_project_root`: string (项目绝对路径) |
+| `check_compile_errors` | 无参数 |
+
+## 注意事项
+
+- 如果有多个 Unity 实例运行，必须先调用 `set_unity_project_root` 指定项目
+- MCP 工具参数名使用下划线命名（如 `unity_project_root`），不是驼峰
+- coplay-mcp 通过 `uvx --python ">=3.11" coplay-mcp-server` 启动，env 需要 `MCP_TOOL_TIMEOUT=720000`

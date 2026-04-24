@@ -49,7 +49,7 @@
 
 ## 2. 事件协议
 
-### 现有事件
+### 事件结构
 
 `BattleEvent` 结构体（定义在 `BattleData.cs`）：
 
@@ -66,6 +66,8 @@ public struct BattleEvent
 }
 ```
 
+### 完整事件列表
+
 | BattleEventType | 触发时机 | 字段含义 |
 |-----------------|---------|----------|
 | `CharSelected` | 玩家选角 | `SourceId`=玩家, `IntParam`=(int)CharacterType |
@@ -77,79 +79,92 @@ public struct BattleEvent
 | `HpChanged` | 血量变化 | `SourceId`=角色, `IntParam`=当前HP |
 | `Death` | 角色阵亡 | `SourceId`=阵亡者 |
 | `BattleEnd` | 战斗结束 | `IntParam`=胜者ID |
+| `FighterSpawn` | 角色创建 | `SourceId`=角色玩家ID, `TargetId`=(TeamId<<4)\|CharType, `IntParam`=MaxHp, `Pos`=初始位置 |
+| `StateChanged` | 状态变化 | `SourceId`=角色, `IntParam`=10位状态掩码 |
+| `PhaseChanged` | 阶段变化 | `IntParam`=(int)BattlePhase |
+| `CooldownUpdate` | CD更新 | `SourceId`=角色, `IntParam`=普攻CD剩余, `PosXRaw`=大招CD剩余, `PosYRaw`=总CD编码 |
+| `ProjectileSpawn` | 弹射物创建 | `SourceId`=发射者, `TargetId`=目标, `Pos`=初始位置, `IntParam`=类型(0=普通/1=Skill2/2=AoE/3=穿刺) |
+| `ProjectileHit` | 弹射物命中 | `SourceId`=发射者, `TargetId`=受击者, `IntParam`=伤害 |
+| `Skill2Cast` | 副技能释放 | `SourceId`=释放者, `TargetId`=目标, `IntParam`=伤害, `Pos`=位置 |
+| `AoEExplosion` | AoE爆炸 | `SourceId`=发射者, `Pos`=爆炸位置, `IntParam`=爆炸半径 |
+| `BuffApplied` | Buff施加 | `SourceId`=施加者, `TargetId`=目标, `IntParam`=持续帧数 |
+| `HealApplied` | 治疗 | `SourceId`=治疗者, `TargetId`=目标, `IntParam`=治疗量 |
+| `ChainLightningLink` | 连锁闪电链接 | `SourceId`=上一个目标, `TargetId`=下一个目标 |
+| `LightningCloudSpawn` | 闪电云生成 | `SourceId`=施法者, `Pos`=位置, `IntParam`=存活帧数 |
+| `FighterRevive` | 角色复活 | `SourceId`=复活者, `TargetId`=施法者, `IntParam`=复活后HP |
+| `PullStart` | 拉取开始 | `SourceId`=拉取者, `TargetId`=被拉者 |
+| `ReflectDamage` | 反伤 | `SourceId`=反伤者, `TargetId`=受反伤者, `IntParam`=伤害 |
+| `SummonExplode` | 召唤物自爆 | `SourceId`=自爆者, `Pos`=位置, `IntParam`=爆炸半径 |
+| `SelfRevive` | 自我复活 | `SourceId`=复活者, `IntParam`=复活后HP |
+
+> **FighterSpawn TargetId 编码**：`TeamId = TargetId >> 4`, `CharType = TargetId & 0x0F`
 
 ---
 
-## 3. 扩展事件类型
+## 3. 已实现事件详解
 
-现有事件不足以让显示层**完全脱离**逻辑层引用。需要补充以下事件：
+所有以下事件均已在代码中实现，显示层可直接使用。
 
-### 3.1 新增事件枚举
-
-```csharp
-public enum BattleEventType : byte
-{
-    CharSelected,
-    BattleStart,
-    Move,
-    NormalAttack,
-    UltimateCast,
-    Damage,
-    HpChanged,
-    Death,
-    BattleEnd,
-
-    // ── 新增：显示层完全隔离所需 ──
-    FighterSpawn,   // 角色创建     SourceId=玩家, TargetId=(byte)CharType,
-                    //              IntParam=MaxHp, PosXRaw/PosYRaw=初始位置
-    StateChanged,   // 状态变化     SourceId=角色, IntParam=状态位掩码
-}
-```
-
-### 3.2 FighterSpawn — 角色初始化
+### 3.1 FighterSpawn — 角色初始化
 
 在 `BeginCombat` 中，创建完 BattleFighter 后立即发出：
 
 ```csharp
-// BattleLogic.BeginCombat() 中添加
 _events.Add(new BattleEvent
 {
     Frame     = _currentFrame,
     Type      = BattleEventType.FighterSpawn,
     SourceId  = fighter.PlayerId,
-    TargetId  = (byte)fighter.CharType,
+    TargetId  = (byte)((fighter.TeamId << 4) | (int)fighter.CharType),
     IntParam  = fighter.MaxHp.ToInt(),            // 最大血量（整数部分）
     PosXRaw   = fighter.Position.X.Raw,
     PosYRaw   = fighter.Position.Y.Raw,
 });
 ```
 
-显示层收到此事件后，创建角色视图并初始化所有属性。**不再需要读取 `BattleFighter`。**
+显示层收到此事件后，创建角色视图并初始化所有属性。
 
-### 3.3 StateChanged — 移动/逃跑状态
+### 3.2 StateChanged — 状态变化
 
-在 `BattleFighter.Tick()` 末尾，当 `IsMoving`/`IsFleeing` 发生变化时发出：
+在 `BattleFighter.Tick()` 末尾，当状态发生变化时发出：
 
 ```csharp
-// 状态位定义
-public const int StateBit_Moving  = 1 << 0; // bit 0
-public const int StateBit_Fleeing = 1 << 1; // bit 1
-
-// BattleFighter.Tick() 末尾
-int newState = (IsMoving ? StateBit_Moving : 0)
-             | (IsFleeing ? StateBit_Fleeing : 0);
-if (newState != _prevState)
-{
-    _events.Add(new BattleEvent
-    {
-        Frame    = frame,
-        Type     = BattleEventType.StateChanged,
-        SourceId = PlayerId,
-        IntParam = newState,
-    });
-    _prevState = newState;
-}
+// 状态位定义（共10位 bit0~bit9）
+public const int StateBit_Moving    = 1 << 0;
+public const int StateBit_Fleeing   = 1 << 1;
+public const int StateBit_Casting   = 1 << 2;
+public const int StateBit_CastUlt   = 1 << 3;
+public const int StateBit_Stunned   = 1 << 4;
+public const int StateBit_Stealthed = 1 << 5;
+public const int StateBit_Slowed    = 1 << 6;
+public const int StateBit_Staggered = 1 << 7;
+public const int StateBit_AtkBuffed = 1 << 8;
+public const int StateBit_AtkDebuffed = 1 << 9;
 ```
+
+### 3.3 CooldownUpdate — 冷却更新
+
+每帧发送，用于显示层更新技能 CD 显示。
+
+### 3.4 ProjectileSpawn — 弹射物创建
+
+`IntParam` 表示弹射物类型：
+- 0 = 普通追踪弹（普攻）
+- 1 = Skill2 弹射物
+- 2 = AoE 弹射物
+- 3 = 穿刺弹射物（闪电）
+
+### 3.5 ChainLightningLink — 连锁闪电
+
+显示层收到后绘制闪电连接线。
+
+### 3.6 LightningCloudSpawn — 闪电云
+
+显示层收到后创建闪电云特效区域。
+
+### 3.7 PullStart — 拉取开始
+
+显示层收到后播放拉取动画效果。
 
 ---
 
@@ -166,33 +181,83 @@ public class ViewFighter
 {
     // ── 身份 ──
     public byte PlayerId;
-    public byte CharType;       // 1=Warrior, 2=Archer（同 CharacterType 枚举值）
+    public byte TeamId;            // 队伍ID
+    public byte CharType;          // 角色类型（同 CharacterType 枚举值）
 
     // ── 位置（浮点，用于渲染） ──
-    public Vector3 TargetPos;   // 事件传来的目标位置
-    public Vector3 DisplayPos;  // 平滑插值后的显示位置
+    public Vector3 TargetPos;       // 事件传来的目标位置
+    public Vector3 DisplayPos;     // 平滑插值后的显示位置
+    public float TargetYaw;       // 目标朝向
+    public float DisplayYaw;       // 平滑插值后的朝向
 
     // ── 血量 ──
     public int MaxHp;
     public int CurrentHp;
 
-    // ── 状态 ──
+    // ── 状态（10位掩码） ──
     public bool IsMoving;
     public bool IsFleeing;
+    public bool IsCasting;
+    public bool IsCastingUlt;
+    public bool IsStunned;
+    public bool IsStealthed;
+    public bool IsSlowed;
+    public bool IsStaggered;
+    public bool IsAtkBuffed;
+    public bool IsAtkDebuffed;
     public bool IsDead;
+    public bool IsSummon;
+
+    // ── 冷却 ──
+    public float AtkCooldownLeft;
+    public float AtkCooldownTotal;
+    public float UltCooldownLeft;
+    public float UltCooldownTotal;
+    public float Skill2CooldownLeft;
+    public float Skill2CooldownTotal;
+
+    // ── 特效计时 ──
+    public float AttackFlashTimer;
+    public float UltFlashTimer;
+    public float Skill2FlashTimer;
+
+    // ── 渲染引用（显示层使用） ──
+    public GameObject HeadSR;    // 头像SpriteRenderer
+    public GameObject TeamSR;    // 队伍标识SpriteRenderer
+    public GameObject StateSR;  // 状态特效SpriteRenderer
+
+    // ── Buff信息 ──
+    public List<BuffInfo> ActiveBuffs = new List<BuffInfo>();
 
     /// <summary>从 FighterSpawn 事件初始化。</summary>
     public void InitFromEvent(BattleEvent evt)
     {
         PlayerId  = evt.SourceId;
-        CharType  = evt.TargetId;           // TargetId 复用为 CharType
+        TeamId    = (byte)(evt.TargetId >> 4);
+        CharType  = (byte)(evt.TargetId & 0x0F);
         MaxHp     = evt.IntParam;
         CurrentHp = evt.IntParam;           // 初始满血
         TargetPos = RawToWorld(evt.PosXRaw, evt.PosYRaw);
         DisplayPos = TargetPos;
         IsDead = false;
         IsMoving = false;
-        IsFleeing = false;
+        IsCasting = false;
+        // ... 初始化其他状态
+    }
+
+    /// <summary>解析 StateChanged 事件。</summary>
+    public void UpdateState(int stateMask)
+    {
+        IsMoving       = (stateMask & (1 << 0)) != 0;
+        IsFleeing      = (stateMask & (1 << 1)) != 0;
+        IsCasting      = (stateMask & (1 << 2)) != 0;
+        IsCastingUlt   = (stateMask & (1 << 3)) != 0;
+        IsStunned      = (stateMask & (1 << 4)) != 0;
+        IsStealthed    = (stateMask & (1 << 5)) != 0;
+        IsSlowed       = (stateMask & (1 << 6)) != 0;
+        IsStaggered    = (stateMask & (1 << 7)) != 0;
+        IsAtkBuffed    = (stateMask & (1 << 8)) != 0;
+        IsAtkDebuffed  = (stateMask & (1 << 9)) != 0;
     }
 
     /// <summary>将定点数原始值转为渲染坐标。</summary>
@@ -299,19 +364,78 @@ void ConsumeEvents(List<BattleEvent> events)
             case BattleEventType.BattleEnd:
                 OnBattleEnd(evt);
                 break;
+
+            // ── 新增事件 ──
+            case BattleEventType.PhaseChanged:
+                OnPhaseChanged(evt);
+                break;
+
+            case BattleEventType.CooldownUpdate:
+                OnCooldownUpdate(evt);
+                break;
+
+            case BattleEventType.ProjectileSpawn:
+                OnProjectileSpawn(evt);
+                break;
+
+            case BattleEventType.ProjectileHit:
+                OnProjectileHit(evt);
+                break;
+
+            case BattleEventType.Skill2Cast:
+                OnSkill2Cast(evt);
+                break;
+
+            case BattleEventType.AoEExplosion:
+                OnAoEExplosion(evt);
+                break;
+
+            case BattleEventType.BuffApplied:
+                OnBuffApplied(evt);
+                break;
+
+            case BattleEventType.HealApplied:
+                OnHealApplied(evt);
+                break;
+
+            case BattleEventType.ChainLightningLink:
+                OnChainLightningLink(evt);
+                break;
+
+            case BattleEventType.LightningCloudSpawn:
+                OnLightningCloudSpawn(evt);
+                break;
+
+            case BattleEventType.FighterRevive:
+                OnFighterRevive(evt);
+                break;
+
+            case BattleEventType.PullStart:
+                OnPullStart(evt);
+                break;
+
+            case BattleEventType.ReflectDamage:
+                OnReflectDamage(evt);
+                break;
+
+            case BattleEventType.SummonExplode:
+                OnSummonExplode(evt);
+                break;
+
+            case BattleEventType.SelfRevive:
+                OnSelfRevive(evt);
+                break;
         }
     }
 }
 
-// ── 事件处理示例 ──
+// ── 基础事件处理 ──
 
 void OnFighterSpawn(BattleEvent evt)
 {
     var vf = new ViewFighter();
     vf.InitFromEvent(evt);
     _viewFighters[evt.SourceId] = vf;
-
-    // 创建 GameObject
     CreateFighterGO(vf);
 }
 
@@ -333,8 +457,7 @@ void OnStateChanged(BattleEvent evt)
 {
     var vf = _viewFighters[evt.SourceId];
     if (vf == null) return;
-    vf.IsMoving  = (evt.IntParam & 1) != 0;
-    vf.IsFleeing = (evt.IntParam & 2) != 0;
+    vf.UpdateState(evt.IntParam);  // 使用新的解析方法
 }
 
 void OnDeath(BattleEvent evt)
@@ -343,38 +466,82 @@ void OnDeath(BattleEvent evt)
     if (vf == null) return;
     vf.IsDead = true;
 }
+
+// ── 新增事件处理 ──
+
+void OnCooldownUpdate(BattleEvent evt)
+{
+    var vf = _viewFighters[evt.SourceId];
+    if (vf == null) return;
+    // 解码 CD 信息并更新 vf.AtkCooldownLeft / UltCooldownLeft 等
+}
+
+void OnProjectileSpawn(BattleEvent evt)
+{
+    // 根据 IntParam 创建不同类型的弹射物视图
+}
+
+void OnChainLightningLink(BattleEvent evt)
+{
+    // 绘制连锁闪电连接线
+}
+
+void OnLightningCloudSpawn(BattleEvent evt)
+{
+    // 创建闪电云特效区域
+}
+
+void OnPullStart(BattleEvent evt)
+{
+    // 播放拉取动画
+}
+
+void OnReflectDamage(BattleEvent evt)
+{
+    // 播放反伤特效
+}
+
+void OnSummonExplode(BattleEvent evt)
+{
+    // 播放召唤物爆炸特效
+}
+
+void OnSelfRevive(BattleEvent evt)
+{
+    // 播放复活特效
+}
+
+void OnFighterRevive(BattleEvent evt)
+{
+    // 播放复活特效
+}
 ```
 
 ---
 
 ## 6. 创建显示层的完整步骤
 
-### 步骤 1：扩展事件类型
+### 步骤 1：确保事件类型已定义
 
-在 `BattleData.cs` 的 `BattleEventType` 枚举中添加 `FighterSpawn` 和 `StateChanged`（见[第 3 节](#3-扩展事件类型)）。
+所有 `BattleEventType` 枚举值已在 `BattleData.cs` 中定义（见[第 2 节](#2-事件协议)）。
 
-### 步骤 2：逻辑层发出新事件
-
-- `BattleLogic.BeginCombat()`：创建 Fighter 后发出 `FighterSpawn`
-- `BattleFighter.Tick()` 末尾：状态变化时发出 `StateChanged`
-
-### 步骤 3：创建 ViewFighter 数据模型
+### 步骤 2：创建 ViewFighter 数据模型
 
 ```
 Assets/Scripts/BattleView/ViewFighter.cs
 ```
 
-见[第 4 节](#4-显示层数据模型)的完整代码。该文件不依赖 `FrameSync` 命名空间。
+见[第 4 节](#4-显示层数据模型)的完整代码。该文件不依赖任何逻辑层命名空间。
 
-### 步骤 4：创建 BattleView 管理器
+### 步骤 3：创建 BattleView 管理器
 
 ```
 Assets/Scripts/BattleView/BattleView.cs
 ```
 
-完整实现见下一节。
+完整实现参考实际代码 `Assets/Scripts/BattleView/BattleView.cs`。
 
-### 步骤 5：场景搭建
+### 步骤 4：场景搭建
 
 ```
 Scene Hierarchy:
@@ -382,19 +549,23 @@ Scene Hierarchy:
 │   ├─ BattleEntry      (组件)  ← 网络 + 帧同步入口
 │   ├─ BattleLogic      (组件)  ← 逻辑层
 │   └─ BattleView       (组件)  ← 显示层（只读事件队列）
-│       ├─ warriorPrefab → 拖入剑士预制体
-│       └─ archerPrefab  → 拖入弓手预制体
+│       ├─ Prefabs → 拖入各角色预制体
+│       ├─ HeadIcons → 拖入头像Sprite
+│       └─ 特效预制体引用
 ├─ Main Camera
 └─ ...
 ```
 
-### 步骤 6：制作角色预制体
+### 步骤 5：制作角色预制体
 
 ```
-WarriorPrefab (或 ArcherPrefab)
+CharacterPrefab
 ├─ SpriteRenderer / MeshRenderer  ← 角色外观
 ├─ Canvas (World Space)
-│   └─ HPBar (Slider)             ← 血条
+│   ├─ HPBar (Slider)             ← 血条
+│   └─ StateLabel                 ← 状态标签
+├─ BuffPanel                      ← Buff显示区域
+├─ CooldownPanel                  ← CD显示
 └─ DamagePopupAnchor (空Transform) ← 飘字挂点
 ```
 
@@ -404,7 +575,18 @@ WarriorPrefab (或 ArcherPrefab)
 
 ## 7. 完整示例：SimpleBattleView
 
-不依赖任何预制体、纯代码创建视觉的最简示例。**完全不引用 `BattleFighter`，只消费事件：**
+参考 `Assets/Scripts/BattleView/BattleView.cs` 中的完整实现。
+
+该实现展示了**完全不引用 `BattleFighter`**，只通过事件队列获取数据，自建 ViewFighter 模型的核心模式：
+
+- 事件驱动更新
+- 平滑插值渲染
+- 状态着色
+- 伤害飘字
+- Buff 标签
+- 连锁闪电效果
+- 闪电云特效
+- 弹射物管理
 
 ```csharp
 using System.Collections;
@@ -713,14 +895,19 @@ void OnStateChanged(BattleEvent evt)
 {
     var vf = _fighters[evt.SourceId];
     if (vf == null) return;
-    vf.IsMoving  = (evt.IntParam & 1) != 0;
-    vf.IsFleeing = (evt.IntParam & 2) != 0;
+    vf.UpdateState(evt.IntParam);  // 解析10位状态掩码
 
     // 驱动动画
     if (_animators.TryGetValue(evt.SourceId, out var anim))
     {
-        anim.SetBool("IsMoving", vf.IsMoving);
-        anim.SetBool("IsFleeing", vf.IsFleeing);
+        anim.SetBool("IsMoving",     vf.IsMoving);
+        anim.SetBool("IsFleeing",    vf.IsFleeing);
+        anim.SetBool("IsStunned",    vf.IsStunned);
+        anim.SetBool("IsStaggered",  vf.IsStaggered);
+        anim.SetBool("IsSlowed",     vf.IsSlowed);
+        anim.SetBool("IsCasting",    vf.IsCasting);
+        anim.SetBool("IsAtkBuffed",  vf.IsAtkBuffed);
+        anim.SetBool("IsAtkDebuffed", vf.IsAtkDebuffed);
     }
 }
 
@@ -799,15 +986,30 @@ IEnumerator AnimateHpBar(Slider slider, float target, float duration)
 
 | 事件 | 显示层响应 | 数据来源 |
 |------|-----------|---------|
-| `FighterSpawn` | 创建 ViewFighter + GameObject，初始化外观/血条 | `SourceId`, `TargetId`(CharType), `IntParam`(MaxHp), `Pos` |
-| `Move` | 更新 `ViewFighter.TargetPos`，每帧 Lerp 平滑 | `SourceId`, `PosXRaw/PosYRaw` |
+| `FighterSpawn` | 创建 ViewFighter + GameObject，初始化外观/血条 | `SourceId`, `TargetId`(TeamId<<4\|CharType), `IntParam`(MaxHp), `Pos` |
+| `Move` | 更新 `ViewFighter.TargetPos/TargetYaw`，每帧 Lerp 平滑 | `SourceId`, `Pos` |
 | `HpChanged` | 更新 `ViewFighter.CurrentHp`，动画血条 | `SourceId`, `IntParam`(HP) |
-| `StateChanged` | 更新 `IsMoving/IsFleeing`，切换 Animator 状态 | `SourceId`, `IntParam`(位掩码) |
+| `StateChanged` | 更新10位状态掩码，切换 Animator 状态 | `SourceId`, `IntParam`(位掩码 bit0~bit9) |
 | `NormalAttack` | 播放攻击动画/特效，近战挥砍或远程弹道 | `SourceId`, `TargetId` |
 | `UltimateCast` | 播放大招特效 | `SourceId`, `TargetId`, `Pos` |
 | `Damage` | 伤害飘字、受击闪白 | `TargetId`, `IntParam`(伤害) |
 | `Death` | 死亡动画、灰化/隐藏 | `SourceId` |
 | `BattleEnd` | 胜负结算 UI | `IntParam`(胜者ID) |
+| `PhaseChanged` | 更新战斗阶段 UI | `IntParam`(BattlePhase) |
+| `CooldownUpdate` | 更新技能 CD 显示 | `SourceId`, `IntParam`, `PosXRaw`, `PosYRaw` |
+| `ProjectileSpawn` | 创建弹射物视图（追踪/AoE/穿刺） | `SourceId`, `TargetId`, `Pos`, `IntParam`(类型) |
+| `ProjectileHit` | 弹射物命中特效 | `SourceId`, `TargetId`, `IntParam` |
+| `Skill2Cast` | 副技能释放特效 | `SourceId`, `TargetId`, `Pos` |
+| `AoEExplosion` | AoE 爆炸特效 | `SourceId`, `Pos`, `IntParam`(半径) |
+| `BuffApplied` | Buff 标签显示 | `SourceId`, `TargetId`, `IntParam`(持续帧) |
+| `HealApplied` | 治疗飘字、治疗特效 | `SourceId`, `TargetId`, `IntParam`(治疗量) |
+| `ChainLightningLink` | 绘制连锁闪电连接线 | `SourceId`, `TargetId` |
+| `LightningCloudSpawn` | 创建闪电云特效区域 | `SourceId`, `Pos`, `IntParam`(存活帧) |
+| `FighterRevive` | 友军复活特效 | `SourceId`, `TargetId`, `IntParam`(复活HP) |
+| `PullStart` | 拉取动画效果 | `SourceId`, `TargetId` |
+| `ReflectDamage` | 反伤特效 | `SourceId`, `TargetId`, `IntParam`(伤害) |
+| `SummonExplode` | 召唤物爆炸特效 | `SourceId`, `Pos`, `IntParam`(半径) |
+| `SelfRevive` | 自我复活特效 | `SourceId`, `IntParam`(复活HP) |
 
 ### 铁律
 

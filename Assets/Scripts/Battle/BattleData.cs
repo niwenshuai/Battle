@@ -130,13 +130,13 @@ namespace FrameSync
         public string Name;
         public string Type;      // 投递方式: MeleeAttack, RangedAttack, AoEProjectile, Instant, Blink, DashStrike, KnockbackArrow, Stealth, ReactBlink, SummonPet
         public int    Damage;    // 正数=伤害，负数=治疗
-        public int    Range;
+        public float  Range;     // 施法/攻击范围（支持小数，如2.5格）
         public int    Cooldown;
         public int    Windup;
         public int    Recovery;
-        public int    Param1;    // 类型相关参数1
-        public int    Param2;    // 类型相关参数2
-        public int    Param3;    // 类型相关参数3
+        public float  Param1;    // 类型相关参数1（支持小数，如速度2.5、半径2.5等）
+        public float  Param2;    // 类型相关参数2（支持小数，如击退距离、爆炸半径等）
+        public float  Param3;    // 类型相关参数3（支持小数）
         public string TargetTeam;  // "Enemy" / "Ally" — 作用于敌方还是友方
         public string TargetScope; // "Single" / "All" / "LowestHp" — 单体/全体/血量最低
         public BuffConfig[] Buffs; // 技能附加的buff列表（减速、眩晕等）

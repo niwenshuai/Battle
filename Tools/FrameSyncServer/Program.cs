@@ -30,21 +30,21 @@ namespace FrameSyncServer
 
     enum MsgType : byte
     {
-        JoinRoom    = 0x01, LeaveRoom   = 0x02, PlayerReady = 0x03, PlayerInput = 0x10,
-        JoinRoomAck = 0x81, RoomSnapshot= 0x82, GameStart   = 0x83, GameEnd     = 0x84,
-        FrameData   = 0x90,
+        JoinRoom = 0x01, LeaveRoom = 0x02, PlayerReady = 0x03, PlayerInput = 0x10,
+        JoinRoomAck = 0x81, RoomSnapshot = 0x82, GameStart = 0x83, GameEnd = 0x84,
+        FrameData = 0x90,
     }
 
     // ── 房间玩家 ─────────────────────────────────────────────
 
     class RoomPlayer
     {
-        public byte     Id;
-        public string   Name;
-        public bool     Ready;
-        public Session  Session;
+        public byte Id;
+        public string Name;
+        public bool Ready;
+        public Session Session;
         // 当前帧缓存的输入
-        public byte[]   LatestInput; // 13 bytes raw (PlayerInput serialized)
+        public byte[] LatestInput; // 13 bytes raw (PlayerInput serialized)
     }
 
     // ── 房间 ─────────────────────────────────────────────────
@@ -55,9 +55,9 @@ namespace FrameSyncServer
 
         public readonly List<RoomPlayer> Players = new();
         public bool GameRunning;
-        public int  CurrentFrame;
-        public int  TickRateHz;
-        public int  RandomSeed;
+        public int CurrentFrame;
+        public int TickRateHz;
+        public int RandomSeed;
 
         private readonly object _lock = new();
         // 每个玩家每帧的输入收集
@@ -103,7 +103,7 @@ namespace FrameSyncServer
                     uint oldBtn = ((uint)existing[9] << 24) | ((uint)existing[10] << 16) | ((uint)existing[11] << 8) | existing[12];
                     uint newBtn = ((uint)inputBytes[9] << 24) | ((uint)inputBytes[10] << 16) | ((uint)inputBytes[11] << 8) | inputBytes[12];
                     uint merged = oldBtn | newBtn;
-                    existing[9]  = (byte)(merged >> 24);
+                    existing[9] = (byte)(merged >> 24);
                     existing[10] = (byte)(merged >> 16);
                     existing[11] = (byte)(merged >> 8);
                     existing[12] = (byte)merged;
@@ -119,7 +119,7 @@ namespace FrameSyncServer
             lock (_lock)
             {
                 using var ms = new MemoryStream();
-                using var w  = new BinaryWriter(ms);
+                using var w = new BinaryWriter(ms);
                 w.Write((byte)MsgType.FrameData);
                 WriteInt32BE(w, CurrentFrame);
                 w.Write((byte)Players.Count);
@@ -160,12 +160,12 @@ namespace FrameSyncServer
         static void WriteInt32BE(BinaryWriter w, int v)
         {
             w.Write((byte)(v >> 24)); w.Write((byte)(v >> 16));
-            w.Write((byte)(v >> 8));  w.Write((byte)v);
+            w.Write((byte)(v >> 8)); w.Write((byte)v);
         }
         static void WriteUInt32BE(BinaryWriter w, uint v)
         {
             w.Write((byte)(v >> 24)); w.Write((byte)(v >> 16));
-            w.Write((byte)(v >> 8));  w.Write((byte)v);
+            w.Write((byte)(v >> 8)); w.Write((byte)v);
         }
     }
 
@@ -173,26 +173,26 @@ namespace FrameSyncServer
 
     class Session
     {
-        const int HeaderSize  = 4;
+        const int HeaderSize = 4;
         const int RecvBufSize = 8192;
-        const int MaxPayload  = 1024 * 1024;
+        const int MaxPayload = 1024 * 1024;
 
-        public int    Id       { get; }
+        public int Id { get; }
         public string EndPoint { get; }
 
-        private readonly TcpClient     _tcp;
+        private readonly TcpClient _tcp;
         private readonly NetworkStream _stream;
         private readonly Action<Session, byte[]> _onData;
-        private readonly Action<Session>         _onDisconnected;
+        private readonly Action<Session> _onDisconnected;
         private volatile bool _closed;
 
         private readonly byte[] _buf = new byte[RecvBufSize];
-        private byte[] _accum  = new byte[4096];
-        private int    _accumLen;
+        private byte[] _accum = new byte[4096];
+        private int _accumLen;
 
         public Session(int id, TcpClient tcp, Action<Session, byte[]> onData, Action<Session> onDisc)
         {
-            Id   = id; _tcp = tcp; _stream = tcp.GetStream();
+            Id = id; _tcp = tcp; _stream = tcp.GetStream();
             _onData = onData; _onDisconnected = onDisc;
             EndPoint = tcp.Client.RemoteEndPoint?.ToString() ?? "?";
             tcp.NoDelay = true;
@@ -206,7 +206,7 @@ namespace FrameSyncServer
             byte[] frame = new byte[HeaderSize + payload.Length];
             int len = payload.Length;
             frame[0] = (byte)(len >> 24); frame[1] = (byte)(len >> 16);
-            frame[2] = (byte)(len >> 8);  frame[3] = (byte)len;
+            frame[2] = (byte)(len >> 8); frame[3] = (byte)len;
             Buffer.BlockCopy(payload, 0, frame, HeaderSize, payload.Length);
             lock (_stream) { _stream.Write(frame, 0, frame.Length); }
         }
@@ -226,7 +226,7 @@ namespace FrameSyncServer
         {
             if (_closed) return; _closed = true;
             try { _stream.Close(); } catch { }
-            try { _tcp.Close(); }    catch { }
+            try { _tcp.Close(); } catch { }
         }
 
         private void RecvLoop()
@@ -321,26 +321,40 @@ namespace FrameSyncServer
                         if (!Cts.IsCancellationRequested) Log($"Accept 异常: {ex.Message}");
                     }
                 }
-            }) { IsBackground = true };
+            })
+            { IsBackground = true };
             acceptThread.Start();
 
-            // 控制台
-            while (true)
+            // // 控制台
+            // while (true)
+            // {
+            //     string line = Console.ReadLine()?.Trim();
+            //     if (line == null || line.Equals("quit", StringComparison.OrdinalIgnoreCase)) break;
+            //     if (line.Equals("list", StringComparison.OrdinalIgnoreCase))
+            //     {
+            //         foreach (var entry in _room.GetSnapshot())
+            //             Log($"  #{entry.id} {entry.name} ready={entry.ready}");
+            //         if (_room.GameRunning) Log($"  游戏进行中 Frame={_room.CurrentFrame}");
+            //         continue;
+            //     }
+            //     if (line.Equals("start", StringComparison.OrdinalIgnoreCase)) { StartGame(); continue; }
+            //     if (line.Equals("end", StringComparison.OrdinalIgnoreCase))   { EndGame(0); continue; }
+            // }
+            // ========== 修改这里 ==========
+            // 等待取消信号（Ctrl+C 或 systemd 停止）
+            Console.CancelKeyPress += (sender, e) =>
             {
-                string line = Console.ReadLine()?.Trim();
-                if (line == null || line.Equals("quit", StringComparison.OrdinalIgnoreCase)) break;
-                if (line.Equals("list", StringComparison.OrdinalIgnoreCase))
-                {
-                    foreach (var entry in _room.GetSnapshot())
-                        Log($"  #{entry.id} {entry.name} ready={entry.ready}");
-                    if (_room.GameRunning) Log($"  游戏进行中 Frame={_room.CurrentFrame}");
-                    continue;
-                }
-                if (line.Equals("start", StringComparison.OrdinalIgnoreCase)) { StartGame(); continue; }
-                if (line.Equals("end", StringComparison.OrdinalIgnoreCase))   { EndGame(0); continue; }
-            }
+                Log("收到停止信号，正在关闭...");
+                e.Cancel = true; // 阻止立即退出
+                Cts.Cancel();
+            };
 
-            Cts.Cancel();
+            // 等待取消信号
+            var waitHandle = new ManualResetEventSlim(false);
+            Cts.Token.Register(() => waitHandle.Set());
+            waitHandle.Wait();
+
+            // Cts.Cancel();
             _tickTimer?.Dispose();
             foreach (var kv in Sessions) kv.Value.Close();
             listener.Stop();
@@ -464,16 +478,16 @@ namespace FrameSyncServer
             if (_room.GameRunning) return;
 
             var seed = (int)(DateTime.UtcNow.Ticks & 0x7FFFFFFF);
-            _room.RandomSeed   = seed;
+            _room.RandomSeed = seed;
             _room.CurrentFrame = 0;
-            _room.GameRunning  = true;
+            _room.GameRunning = true;
 
             // 广播 GameStart
             using var ms = new MemoryStream();
-            using var w  = new BinaryWriter(ms);
+            using var w = new BinaryWriter(ms);
             w.Write((byte)MsgType.GameStart);
             w.Write((byte)(seed >> 24)); w.Write((byte)(seed >> 16));
-            w.Write((byte)(seed >> 8));  w.Write((byte)seed);
+            w.Write((byte)(seed >> 8)); w.Write((byte)seed);
             byte[] startMsg = ms.ToArray();
             BroadcastImmediate(startMsg); // 控制消息立即发送，确保先于 FrameData 到达
 
@@ -533,7 +547,7 @@ namespace FrameSyncServer
         {
             var snapshot = _room.GetSnapshot();
             using var ms = new MemoryStream();
-            using var w  = new BinaryWriter(ms);
+            using var w = new BinaryWriter(ms);
             w.Write((byte)MsgType.RoomSnapshot);
             w.Write((byte)snapshot.Count);
             foreach (var (id, name, ready) in snapshot)

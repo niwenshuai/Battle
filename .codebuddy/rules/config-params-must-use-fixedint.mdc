@@ -1,0 +1,40 @@
+---
+description: 
+alwaysApply: true
+enabled: true
+updatedAt: 2026-04-24T08:22:26.683Z
+provider: 
+---
+
+# 配置参数必须转为 FixedInt 使用
+
+从配置文件（JSON）读取的所有数值参数，无论是 `int` 还是 `float` 类型，在逻辑层使用时必须先转为 `FixedInt`，禁止直接使用原始类型参与逻辑运算。
+
+## 规则
+
+1. **float 参数**：使用 `FixedInt.FromFloat(value)` 转换
+2. **int 参数**：使用 `FixedInt.FromInt(value)` 转换
+3. **时间参数例外**：表示时间（秒）的参数应通过 `FrameTime.Sec()` 转为帧数（`int`），帧数在逻辑层直接使用（倒计时、比较等），不需要再转 FixedInt
+4. **角度参数例外**：表示角度的纯整数参数（如扇形角度）可直接用 `int`
+
+## 示例
+
+```csharp
+// ✅ 正确
+_speed = FixedInt.FromFloat(config.Speed);        // float → FixedInt
+_range = FixedInt.FromFloat(config.Range);         // float → FixedInt
+_count = FixedInt.FromInt(config.Count);            // int → FixedInt
+_cooldownFrames = FrameTime.Sec(config.Cooldown);   // 时间秒 → 帧数
+_coneAngle = (int)config.Param1;                    // 角度 → int
+
+// ❌ 错误
+_speed = config.Speed;                              // 直接使用 float
+_count = config.Count;                              // 直接使用 int
+_range = FixedInt.FromInt((int)config.Range);       // float 截断为 int 丢失精度
+```
+
+## 适用范围
+
+- `Assets/Scripts/Battle/` 下所有战斗逻辑代码
+- `Assets/Scripts/Network/FrameSync/` 下所有帧同步逻辑代码
+- 所有从 `SkillConfig`、`CharacterConfig`、`BuffConfig` 等配置读取参数的位置

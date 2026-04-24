@@ -463,7 +463,7 @@ namespace FrameSync
 
                 var radius = f.DeathExplodeRadius;
                 var radiusSq = radius * radius;
-                var damage = FixedInt.FromInt(f.DeathExplodeDamage);
+                var damage = f.DeathExplodeDamage;
 
                 for (int j = 0; j < _fighters.Count; j++)
                 {
