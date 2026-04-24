@@ -21,7 +21,7 @@ public class LocalBattleEntry : MonoBehaviour
     byte        _pendingSelectionPid; // 缓存选角目标玩家ID
     bool        _selectingForP2 = true; // true=正在为P2选角，false=为P1选角
     int         _p2SelectionsSent;
-    const float TickInterval = 1f / 15f;
+    const float TickInterval = 1f / FrameTime.FPS;
 
     void Start()
     {

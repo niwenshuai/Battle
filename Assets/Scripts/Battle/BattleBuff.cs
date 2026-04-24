@@ -17,7 +17,7 @@ namespace FrameSync
     public class BuffConfig
     {
         public string Type;      // "Slow", "Stun", "AtkUp", "DefUp", "AtkSpeedUp", "AtkSpeedDown", "AtkDown"
-        public int    Duration;  // 持续帧数
+        public float  Duration;  // 持续时间（秒），加载时通过FrameTime.Sec()转帧数
         public float  Value;     // 效果值（百分比：0.3=30%增幅，0.5=50%减速等）
         public bool   IsDebuff;  // true=减益buff, false=增益buff
     }
@@ -39,7 +39,7 @@ namespace FrameSync
                 result[i] = new BuffTemplate
                 {
                     Type     = ParseType(configs[i].Type),
-                    Duration = configs[i].Duration,
+                    Duration = FrameTime.Sec(configs[i].Duration),
                     Value    = configs[i].Value > 0 ? FixedInt.FromFloat(configs[i].Value) : FixedInt.Zero,
                     IsDebuff = configs[i].IsDebuff,
                 };

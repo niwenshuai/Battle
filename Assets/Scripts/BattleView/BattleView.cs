@@ -1025,14 +1025,14 @@ public class BattleView : MonoBehaviour
                 string bar = new string('█', Mathf.Max(0, filled)) + new string('░', Mathf.Max(0, barLen - filled));
 
                 string atkCDStr = vf.AtkCooldownLeft > 0
-                    ? $"<color=white>{vf.AtkCooldownLeft / 15f:F1}s</color>"
+                    ? $"<color=white>{FrameTime.ToSec(vf.AtkCooldownLeft):F1}s</color>"
                     : "<color=lime>就绪</color>";
                 string ultCDStr = vf.UltCooldownLeft > 0
-                    ? $"<color=white>{vf.UltCooldownLeft / 15f:F1}s</color>"
+                    ? $"<color=white>{FrameTime.ToSec(vf.UltCooldownLeft):F1}s</color>"
                     : "<color=lime>就绪</color>";
                 string skill2Name = vf.Skill2Name ?? "技能2";
                 string sk2CDStr = vf.Skill2CooldownLeft > 0
-                    ? $"<color=white>{vf.Skill2CooldownLeft / 15f:F1}s</color>"
+                    ? $"<color=white>{FrameTime.ToSec(vf.Skill2CooldownLeft):F1}s</color>"
                     : "<color=lime>就绪</color>";
 
                 GUILayout.Label(
@@ -1117,7 +1117,7 @@ public class BattleView : MonoBehaviour
     void OnLightningCloudSpawn(BattleEvent evt)
     {
         var pos = ViewFighter.RawToWorld(evt.PosXRaw, evt.PosYRaw);
-        float lifetime = evt.IntParam / 15f; // 帧→秒
+        float lifetime = FrameTime.ToSec(evt.IntParam); // 帧→秒
 
         // 创建扁平半透明圆柱体作为闪电云
         var go = GameObject.CreatePrimitive(PrimitiveType.Cylinder);

@@ -131,9 +131,9 @@ namespace FrameSync
         public string Type;      // 投递方式: MeleeAttack, RangedAttack, AoEProjectile, Instant, Blink, DashStrike, KnockbackArrow, Stealth, ReactBlink, SummonPet
         public int    Damage;    // 正数=伤害，负数=治疗
         public float  Range;     // 施法/攻击范围（支持小数，如2.5格）
-        public int    Cooldown;
-        public int    Windup;
-        public int    Recovery;
+        public float  Cooldown;   // 冷却时间（秒），加载时通过FrameTime.Sec()转帧数
+        public float  Windup;     // 前摇时间（秒），加载时通过FrameTime.Sec()转帧数
+        public float  Recovery;   // 后摇时间（秒），加载时通过FrameTime.Sec()转帧数
         public float  Param1;    // 类型相关参数1（支持小数，如速度2.5、半径2.5等）
         public float  Param2;    // 类型相关参数2（支持小数，如击退距离、爆炸半径等）
         public float  Param3;    // 类型相关参数3（支持小数）
@@ -178,7 +178,7 @@ namespace FrameSync
         public int    MoveSpeed;
         public int    TurnSpeed;
         public float  CollisionRadius;
-        public int    StaggerDuration;   // 被打断后僵直帧数（0=不可打断）
+        public float  StaggerDuration;   // 被打断后僵直时间（秒），加载时通过FrameTime.Sec()转帧数（0=不可打断）
         public string HeadIcon;         // 头像精灵路径（Resources下）
         public string Profession;       // 职业名（Warrior/Mage/Archer/Assassin/Support）
         public string Passive;          // 被动技能ID

@@ -69,7 +69,7 @@ namespace FrameSync
         byte _nextFighterId;
         int _teamSize;
 
-        static readonly FixedInt TickInterval = FixedInt.OneVal / FixedInt.FromInt(15);
+        static readonly FixedInt TickInterval = FixedInt.OneVal / FixedInt.FromInt(FrameTime.FPS);
 
         // ═══════════════════════════════════════════════════════
         //  IGameLogic 实现

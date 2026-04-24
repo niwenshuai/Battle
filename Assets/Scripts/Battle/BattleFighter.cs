@@ -213,7 +213,7 @@ namespace FrameSync
             MoveSpeed    = BaseMoveSpeed;
             TurnSpeed    = FixedInt.FromInt(cfg.TurnSpeed);
             Radius       = cfg.CollisionRadius > 0 ? FixedInt.FromFloat(cfg.CollisionRadius) : FixedInt.OneVal;
-            _staggerDuration = cfg.StaggerDuration;
+            _staggerDuration = FrameTime.Sec(cfg.StaggerDuration);
             _resistance = FixedInt.FromInt(cfg.Resistance);
 
             // ── 职业与索敌优先级 ──
@@ -225,14 +225,23 @@ namespace FrameSync
             if (passive != null)
             {
                 _passiveType     = passive.Type;
-                _passiveParam1   = FixedInt.FromFloat(passive.Param1);
-                _passiveParam2   = FixedInt.FromFloat(passive.Param2);
+                _passiveParam1   = _passiveType switch
+                {
+                    "SelfRevive"     => FixedInt.FromInt(FrameTime.Sec(passive.Param1)),  // 延迟秒数→帧数
+                    _                => FixedInt.FromFloat(passive.Param1),                // 概率/距离/百分比等
+                };
+                _passiveParam2   = _passiveType switch
+                {
+                    "UltCDReduce"    => FixedInt.FromInt(FrameTime.Sec(passive.Param2)),  // 减少秒数→帧数
+                    "SelfRevive"     => FixedInt.FromInt((int)passive.Param2),              // 复活次数
+                    _                => FixedInt.FromFloat(passive.Param2),                // 概率/倍率/伤害等
+                };
                 _fleeDistance     = _passiveType == "FleeOnHit" ? _passiveParam1 : FixedInt.Zero;
                 _passiveBuffs    = BuffTemplate.FromConfigs(passive.Buffs);
                 if (_passiveType == "SelfRevive")
                 {
-                    _selfReviveDelay = FixedInt.FromFloat(passive.Param1);
-                    _selfRevivesLeft = FixedInt.FromFloat(passive.Param2);
+                    _selfReviveDelay = _passiveParam1;
+                    _selfRevivesLeft = _passiveParam2;
                 }
             }
 
@@ -244,9 +253,9 @@ namespace FrameSync
                 BaseAtkDamage = FixedInt.FromInt(atkSkill.Damage);
                 AtkDamage    = BaseAtkDamage;
                 AtkRange     = FixedInt.FromFloat(atkSkill.Range);
-                _baseAtkCooldown = atkSkill.Cooldown;
-                _baseAtkWindup   = atkSkill.Windup;
-                _baseAtkRecovery = atkSkill.Recovery;
+                _baseAtkCooldown = FrameTime.Sec(atkSkill.Cooldown);
+                _baseAtkWindup   = FrameTime.Sec(atkSkill.Windup);
+                _baseAtkRecovery = FrameTime.Sec(atkSkill.Recovery);
                 AtkCooldown  = _baseAtkCooldown;
                 _atkWindup   = _baseAtkWindup;
                 _atkRecovery = _baseAtkRecovery;
@@ -262,9 +271,20 @@ namespace FrameSync
             {
                 _skill2Type     = sk2.Type;
                 _skill2Damage   = FixedInt.FromInt(sk2.Damage);
-                _skill2Cooldown = sk2.Cooldown;
-                _skill2Param1   = FixedInt.FromFloat(sk2.Param1);
-                _skill2Param2   = FixedInt.FromFloat(sk2.Param2);
+                _skill2Cooldown = FrameTime.Sec(sk2.Cooldown);
+                _skill2Param1   = _skill2Type switch
+                {
+                    "Pull"          => FixedInt.FromFloat(sk2.Param1),   // 拉取范围（距离）
+                    "ReactBlink"    => FixedInt.FromFloat(sk2.Param1),   // 瞬移距离
+                    "ChainLightning"=> FixedInt.FromFloat(sk2.Param1),   // 连接距离上限
+                    _               => FixedInt.FromFloat(sk2.Param1),
+                };
+                _skill2Param2   = _skill2Type switch
+                {
+                    "Pull"          => FixedInt.FromInt(FrameTime.Sec(sk2.Param2)),   // 拉取持续秒数→帧数
+                    "ChainLightning"=> FixedInt.FromFloat(sk2.Param2),                // 最大连接数
+                    _               => FixedInt.FromFloat(sk2.Param2),
+                };
                 _skill2Buffs    = BuffTemplate.FromConfigs(sk2.Buffs);
                 _skill2TargetAlly = sk2.TargetTeam == "Ally";
                 _skill2TargetAll  = sk2.TargetScope == "All";
@@ -282,11 +302,24 @@ namespace FrameSync
             {
                 _ultType     = ult.Type;
                 UltDamage    = FixedInt.FromInt(ult.Damage);
-                UltCooldown  = ult.Cooldown;
-                _ultWindup   = ult.Windup;
-                _ultRecovery = ult.Recovery;
-                _ultParam1   = FixedInt.FromFloat(ult.Param1);
-                _ultParam2   = FixedInt.FromFloat(ult.Param2);
+                UltCooldown  = FrameTime.Sec(ult.Cooldown);
+                _ultWindup   = FrameTime.Sec(ult.Windup);
+                _ultRecovery = FrameTime.Sec(ult.Recovery);
+                _ultParam1   = _ultType switch
+                {
+                    "Stealth"       => FixedInt.FromInt(FrameTime.Sec(ult.Param1)),  // 隐身秒数→帧数
+                    "SummonPet"     => FixedInt.FromInt(FrameTime.Sec(ult.Param1)),  // 存活秒数→帧数
+                    "ReflectShield" => FixedInt.FromInt(FrameTime.Sec(ult.Param1)),  // 持续秒数→帧数
+                    _               => FixedInt.FromFloat(ult.Param1),                // 非时间参数
+                };
+                _ultParam2   = _ultType switch
+                {
+                    "AoEZone"       => FixedInt.FromInt(FrameTime.Sec(ult.Param2)),  // 间隔秒数→帧数
+                    "ReflectShield" => FixedInt.FromFloat(ult.Param2),                // 反弹百分比
+                    "SummonPet"     => FixedInt.FromFloat(ult.Param2),                // 召唤物血量
+                    "DetonateSummons" => FixedInt.FromFloat(ult.Param2),              // 召唤物血量
+                    _               => FixedInt.FromFloat(ult.Param2),
+                };
                 _ultBuffs    = BuffTemplate.FromConfigs(ult.Buffs);
                 _ultTargetAlly = ult.TargetTeam == "Ally";
                 _ultTargetAll  = ult.TargetScope == "All";
@@ -909,7 +942,7 @@ namespace FrameSync
                         farthest._staggerFramesLeft = pullDuration + _staggerDuration;
 
                         // 创建拉取效果
-                        var pullSpeed = farthestDist / FixedInt.FromInt(pullDuration) * FixedInt.FromInt(15); // 距离/时间
+                        var pullSpeed = farthestDist / FixedInt.FromInt(pullDuration) * FixedInt.FromInt(FrameTime.FPS); // 距离/时间
                         PendingPulls.Add(new PullEffect
                         {
                             SourceId   = PlayerId,
@@ -1241,7 +1274,7 @@ namespace FrameSync
                         Radius       = _ultParam1,                    // Param1=半径
                         Damage       = UltDamage,
                         TickInterval = _ultParam2.ToInt(),                    // Param2=伤害间隔帧数
-                        Lifetime     = FixedInt.FromFloat(SkillConfigLoader.Get(CharacterConfig.Get(CharType).Ultimate)?.Param3 ?? 60f).ToInt(),
+                        Lifetime     = FrameTime.Sec(SkillConfigLoader.Get(CharacterConfig.Get(CharType).Ultimate)?.Param3 ?? 6f),
                     });
                     break;
                 }

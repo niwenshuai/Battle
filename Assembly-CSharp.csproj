@@ -103,6 +103,7 @@
     <Compile Include="Assets/Scripts/Network/FrameSync/IGameLogic.cs" />
     <Compile Include="Assets/Scripts/InfiniteScrollList.cs" />
     <Compile Include="Assets/Scripts/Network/FrameSync/FrameSyncClient.cs" />
+    <Compile Include="Assets/Scripts/Network/FrameSync/FrameTime.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets/Shaders/Sprite2DOutline.shader" />
