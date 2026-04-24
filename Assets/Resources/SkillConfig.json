@@ -367,7 +367,7 @@
       "Id": "skeleton_king_atk", "Name": "骨刃斩击",
       "_说明": "骷髅王近战普攻，单体",
       "Type": "MeleeAttack",
-      "Damage": 60, "Range": 2, "Cooldown": 15, "Windup": 4, "Recovery": 3,
+      "Damage": 60, "Range": 1, "Cooldown": 15, "Windup": 4, "Recovery": 3,
       "TargetTeam": "Enemy", "TargetScope": "Single"
     },
     {
@@ -399,7 +399,7 @@
       "Id": "skeleton_minion_atk", "Name": "骨爪",
       "_说明": "小骷髅兵近战普攻，单体",
       "Type": "MeleeAttack",
-      "Damage": 30, "Range": 2, "Cooldown": 15, "Windup": 3, "Recovery": 2,
+      "Damage": 30, "Range": 1, "Cooldown": 15, "Windup": 3, "Recovery": 2,
       "TargetTeam": "Enemy", "TargetScope": "Single"
     },
     {

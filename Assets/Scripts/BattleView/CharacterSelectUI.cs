@@ -119,6 +119,7 @@ public class CharacterSelectUI : MonoBehaviour
         _canvas.sortingOrder = 100;
         canvasGo.AddComponent<CanvasScaler>().uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         canvasGo.GetComponent<CanvasScaler>().referenceResolution = new Vector2(1920, 1080);
+        canvasGo.GetComponent<CanvasScaler>().screenMatchMode=CanvasScaler.ScreenMatchMode.Expand;
         canvasGo.AddComponent<GraphicRaycaster>();
 
         _root = canvasGo;
