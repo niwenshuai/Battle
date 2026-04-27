@@ -1,6 +1,8 @@
 using UnityEngine;
 using FrameSync;
 
+// [InputSystem重构] F5/Esc 改用 GameInput
+
 /// <summary>
 /// 帧同步 Demo 入口脚本。挂到场景中任意 GameObject 上。
 ///
@@ -24,6 +26,13 @@ public class FrameSyncDemoEntry : MonoBehaviour
 
     private void Start()
     {
+        // [InputSystem重构] 确保 GameInput 单例存在
+        if (GameInput.Instance == null)
+        {
+            var inputGO = new GameObject("GameInput");
+            inputGO.AddComponent<GameInput>();
+        }
+
         // 确保 NetworkManager 存在且用于帧同步服务器的端口
         _logic  = gameObject.AddComponent<FrameSyncDemoLogic>();
         _client = gameObject.AddComponent<FrameSyncClient>();
@@ -49,12 +58,14 @@ public class FrameSyncDemoEntry : MonoBehaviour
     {
         if (_client == null) return;
 
+        // [InputSystem重构] F5/Esc 改用 GameInput.WasPressedThisFrame()
+        var gi = GameInput.Instance;
         // F5 = 准备
-        if (Input.GetKeyDown(KeyCode.F5))
+        if (gi != null && gi.ReadyPressed)
             _client.Ready();
 
         // Esc = 离开
-        if (Input.GetKeyDown(KeyCode.Escape))
+        if (gi != null && gi.EscapePressed)
             _client.LeaveRoom();
 
         // 显示状态到屏幕

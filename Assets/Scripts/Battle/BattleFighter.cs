@@ -87,8 +87,10 @@ namespace FrameSync
 
         int _castFramesLeft;
         bool _castIsRecovery;
-        bool _castIsUlt;
+        /// <summary>当前施法的技能类型：0=普攻, 1=副技能, 2=大招。</summary>
+        int _castSkillType; // 0=NormalAtk, 1=Skill2, 2=Ultimate
         int _atkWindup, _atkRecovery;
+        int _skill2Windup, _skill2Recovery;
         int _ultWindup, _ultRecovery;
 
         // ── 技能配置引用（从 SkillConfig 加载）──────────────────
@@ -253,8 +255,13 @@ namespace FrameSync
                 BaseAtkDamage = FixedInt.FromInt(atkSkill.Damage);
                 AtkDamage    = BaseAtkDamage;
                 AtkRange     = FixedInt.FromFloat(atkSkill.Range);
-                _baseAtkCooldown = FrameTime.Sec(atkSkill.Cooldown);
-                _baseAtkWindup   = FrameTime.Sec(atkSkill.Windup);
+                // 优化：普攻CD缩减为1/3，减少的时间平移至前摇，整体攻击速度不变
+                int rawAtkCooldown = FrameTime.Sec(atkSkill.Cooldown);
+                int rawAtkWindup   = FrameTime.Sec(atkSkill.Windup);
+                int reducedCooldown = rawAtkCooldown / 3;
+                int addedWindup     = rawAtkCooldown - reducedCooldown;
+                _baseAtkCooldown = reducedCooldown;
+                _baseAtkWindup   = rawAtkWindup + addedWindup;
                 _baseAtkRecovery = FrameTime.Sec(atkSkill.Recovery);
                 AtkCooldown  = _baseAtkCooldown;
                 _atkWindup   = _baseAtkWindup;
@@ -271,7 +278,10 @@ namespace FrameSync
             {
                 _skill2Type     = sk2.Type;
                 _skill2Damage   = FixedInt.FromInt(sk2.Damage);
-                _skill2Cooldown = FrameTime.Sec(sk2.Cooldown);
+                // 优化：副技能冷却时间翻倍
+                _skill2Cooldown = FrameTime.Sec(sk2.Cooldown) * 2;
+                _skill2Windup   = FrameTime.Sec(sk2.Windup);
+                _skill2Recovery = FrameTime.Sec(sk2.Recovery);
                 _skill2Param1   = _skill2Type switch
                 {
                     "Pull"          => FixedInt.FromFloat(sk2.Param1),   // 拉取范围（距离）
@@ -302,7 +312,8 @@ namespace FrameSync
             {
                 _ultType     = ult.Type;
                 UltDamage    = FixedInt.FromInt(ult.Damage);
-                UltCooldown  = FrameTime.Sec(ult.Cooldown);
+                // 优化：大招冷却时间翻倍
+                UltCooldown  = FrameTime.Sec(ult.Cooldown) * 2;
                 _ultWindup   = FrameTime.Sec(ult.Windup);
                 _ultRecovery = FrameTime.Sec(ult.Recovery);
                 _ultParam1   = _ultType switch
@@ -568,7 +579,7 @@ namespace FrameSync
                 _staggerFramesLeft = 0;
                 RemoveBuff(BuffType.Stun);
                 _bt.ResetTree();
-                BeginCast(true);
+                BeginCast(2);
                 // 跳过行为树，直接进入施法
             }
             // ── 僵直中：不执行行为树，不施法 ──
@@ -592,12 +603,14 @@ namespace FrameSync
                     if (!_castIsRecovery)
                     {
                         // 前摇结束 → 造成伤害 → 进入后摇
-                        if (_castIsUlt)
-                            ExecuteUltimate(frame);
-                        else
-                            ExecuteNormalAttack(frame);
+                        switch (_castSkillType)
+                        {
+                            case 2: ExecuteUltimate(frame); break;
+                            case 1: ExecuteSkill2(frame); break;
+                            default: ExecuteNormalAttack(frame); break;
+                        }
 
-                        int recovery = _castIsUlt ? _ultRecovery : _atkRecovery;
+                        int recovery = _castSkillType switch { 2 => _ultRecovery, 1 => _skill2Recovery, _ => _atkRecovery };
                         if (recovery > 0)
                         {
                             _castFramesLeft = recovery;
@@ -637,7 +650,7 @@ namespace FrameSync
             int curState = (IsMoving ? StateBit_Moving : 0)
                          | (IsFleeing ? StateBit_Fleeing : 0)
                          | (IsCasting ? StateBit_Casting : 0)
-                         | (IsCasting && _castIsUlt ? StateBit_CastUlt : 0)
+                         | (IsCasting && _castSkillType == 2 ? StateBit_CastUlt : 0)
                          | (IsStunned ? StateBit_Stunned : 0)
                          | (IsStealthed ? StateBit_Stealthed : 0)
                          | (IsSlowed ? StateBit_Slowed : 0)
@@ -774,9 +787,9 @@ namespace FrameSync
             {
                 case "DoFlee":        return new BTAction(ctx => DoFlee(ctx.DeltaTime));
                 case "DoMoveToward":  return new BTAction(ctx => DoMoveToward(ctx.DeltaTime));
-                case "ExecuteSkill2": return new BTSimpleAction(ctx => ExecuteSkill2(ctx.Frame));
-                case "BeginCastUlt":  return new BTSimpleAction(ctx => BeginCast(true));
-                case "BeginCastAtk":  return new BTSimpleAction(ctx => BeginCast(false));
+                case "ExecuteSkill2": return new BTSimpleAction(ctx => BeginCast(1));
+                case "BeginCastUlt":  return new BTSimpleAction(ctx => BeginCast(2));
+                case "BeginCastAtk":  return new BTSimpleAction(ctx => BeginCast(0));
                 default:
                     UnityEngine.Debug.LogError($"[BT] Unknown action: {name}");
                     return new BTSimpleAction(_ => { });
@@ -797,7 +810,7 @@ namespace FrameSync
         /// <summary>副技能：Type决定投递方式，TargetTeam/TargetScope决定目标，Damage正负决定伤害/治疗。</summary>
         void ExecuteSkill2(int frame)
         {
-            Skill2CooldownLeft = _skill2Cooldown;
+            // CD已在BeginCast中设置（从前摇开始时刻计算）
             // 作用敌方但没有敌人目标时跳过（友方技能不需要敌人目标）
             if (!_skill2TargetAlly && _target == null) return;
 
@@ -934,12 +947,16 @@ namespace FrameSync
 
                     if (farthest != null)
                     {
-                        // 打断被拉目标的所有动作
-                        farthest.IsCasting = false;
-                        farthest.IsMoving  = false;
-                        farthest.IsFleeing = false;
-                        farthest.IsStaggered = true;
-                        farthest._staggerFramesLeft = pullDuration + _staggerDuration;
+                        // 副技能/大招施法期间不受僵直效果
+                        if (!(farthest.IsCasting && farthest._castSkillType >= 1))
+                        {
+                            // 打断被拉目标的所有动作
+                            farthest.IsCasting = false;
+                            farthest.IsMoving  = false;
+                            farthest.IsFleeing = false;
+                            farthest.IsStaggered = true;
+                            farthest._staggerFramesLeft = pullDuration + _staggerDuration;
+                        }
 
                         // 创建拉取效果
                         var pullSpeed = farthestDist / FixedInt.FromInt(pullDuration) * FixedInt.FromInt(FrameTime.FPS); // 距离/时间
@@ -1047,21 +1064,34 @@ namespace FrameSync
             return FixedVector2.Dot(Facing, targetDir.Normalized) >= FacingThreshold;
         }
 
-        /// <summary>进入施法状态（前摇 → 伤害结算 → 后摇）。</summary>
-        void BeginCast(bool isUlt)
+        /// <summary>进入施法状态（前摇 → 伤害结算 → 后摇）。skillType: 0=普攻, 1=副技能, 2=大招。</summary>
+        void BeginCast(int skillType)
         {
             IsCasting = true;
             IsMoving  = false;
-            _castIsUlt = isUlt;
+            _castSkillType = skillType;
             _castIsRecovery = false;
-            _castFramesLeft = isUlt ? _ultWindup : _atkWindup;
+            _castFramesLeft = skillType switch
+            {
+                2 => _ultWindup,
+                1 => _skill2Windup,
+                _ => _atkWindup,
+            };
+
+            // CD从前摇开始时刻计算（而非伤害结算时刻）
+            if (skillType == 2)
+                UltCooldownLeft = UltCooldown;
+            else if (skillType == 1)
+                Skill2CooldownLeft = _skill2Cooldown;
+            else
+                AtkCooldownLeft = AtkCooldown;
 
             // 前摇 0 帧时直接在下一 Tick 开头结算（_castFramesLeft=0 → 立刻触发结算）
         }
 
         void ExecuteNormalAttack(int frame)
         {
-            AtkCooldownLeft = AtkCooldown;
+            // CD已在BeginCast中设置（从前摇开始时刻计算）
 
             // ── 被动：暴击 — 普攻有概率造成双倍伤害 ──
             FixedInt effectiveDmg = AtkDamage;
@@ -1223,7 +1253,7 @@ namespace FrameSync
 
         void ExecuteUltimate(int frame)
         {
-            UltCooldownLeft = UltCooldown;
+            // CD已在BeginCast中设置（从前摇开始时刻计算）
 
             // ── 投递方式特殊处理（仅位移类/自身buff/召唤物） ──
             switch (_ultType)
@@ -1576,6 +1606,10 @@ namespace FrameSync
         /// <summary>添加buff，同类buff刷新持续时间。眩晕立即生效并打断当前动作。</summary>
         public void AddBuff(Buff buff)
         {
+            // 大招释放期间强制免疫眩晕，确保大招能完整施放
+            if (buff.Type == BuffType.Stun && IsCasting && _castSkillType == 2)
+                return;
+
             for (int i = 0; i < _buffs.Count; i++)
             {
                 if (_buffs[i].Type == buff.Type)
@@ -1881,8 +1915,12 @@ namespace FrameSync
             if (IsStaggered || IsStunned) return;    // 已在控制状态
             if (_bt == null) return;
 
+            // 副技能/大招施法期间不受僵直效果
+            if (IsCasting && _castSkillType >= 1)
+                return;
+
             // 判定是否处于可打断状态：普攻前摇 或 移动中
-            bool inNormalAtkWindup = IsCasting && !_castIsRecovery && !_castIsUlt;
+            bool inNormalAtkWindup = IsCasting && !_castIsRecovery && _castSkillType == 0;
             bool canInterrupt = inNormalAtkWindup || (IsMoving && !IsCasting);
             if (!canInterrupt) return;
 

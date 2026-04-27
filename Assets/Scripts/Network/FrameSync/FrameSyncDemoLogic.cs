@@ -1,6 +1,8 @@
 using UnityEngine;
 using FrameSync;
 
+// [InputSystem重构] WASD/方向键/Space/Shift 改用 GameInput
+
 /// <summary>
 /// 帧同步 Demo 游戏逻辑：简单的多人移动方块。
 /// 每个玩家控制一个方块，用 WASD / 方向键移动。
@@ -92,14 +94,22 @@ public class FrameSyncDemoLogic : MonoBehaviour, IGameLogic
     public PlayerInput SampleLocalInput()
     {
         int mx = 0, my = 0;
-        if (Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow))    my =  1000;
-        if (Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.DownArrow))  my = -1000;
-        if (Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.LeftArrow))  mx = -1000;
-        if (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow)) mx =  1000;
+        // [InputSystem重构] WASD/方向键改用 GameInput 1D轴读取
+        var gi = GameInput.Instance;
+        if (gi != null)
+        {
+            float rawX = gi.MoveXValue;
+            float rawY = gi.MoveYValue;
+            if (rawX > 0.1f) mx =  1000;
+            if (rawX < -0.1f) mx = -1000;
+            if (rawY > 0.1f) my =  1000;
+            if (rawY < -0.1f) my = -1000;
+        }
 
         uint buttons = 0;
-        if (Input.GetKey(KeyCode.Space))      buttons |= PlayerInput.ButtonFire;
-        if (Input.GetKey(KeyCode.LeftShift))   buttons |= PlayerInput.ButtonJump;
+        // [InputSystem重构] Space/Shift 改用 GameInput.IsPressed()
+        if (gi != null && gi.UltPressed)  buttons |= PlayerInput.ButtonFire;
+        if (gi != null && gi.JumpPressed) buttons |= PlayerInput.ButtonJump;
 
         return new PlayerInput
         {

@@ -25,6 +25,13 @@ public class LocalBattleEntry : MonoBehaviour
 
     void Start()
     {
+        // [InputSystem重构] 确保 GameInput 单例存在
+        if (GameInput.Instance == null)
+        {
+            var inputGO = new GameObject("GameInput");
+            inputGO.AddComponent<GameInput>();
+        }
+
         _logic = gameObject.AddComponent<BattleLogic>();
         _view  = gameObject.AddComponent<BattleView>();
 
@@ -41,6 +48,13 @@ public class LocalBattleEntry : MonoBehaviour
         _view.LocalPlayerId       = 1;
         _view.ConnectionInfo      = "Local";
         _view.UseExternalSelectUI = true; // 禁用IMGUI选角界面
+
+        // 创建大招按钮UI
+        var ultBtnGO = new GameObject("UltimateButtonUI");
+        ultBtnGO.transform.SetParent(transform);
+        var ultBtn = ultBtnGO.AddComponent<UltimateButtonUI>();
+        ultBtn.OnUltRequested += (playerId) => _logic.PendingUltRequest = playerId;
+        _view.UltButtonUI = ultBtn;
 
         // 直接启动游戏（跳过网络房间流程）
         _logic.OnGameStart(2, 1, System.Environment.TickCount);
@@ -64,9 +78,6 @@ public class LocalBattleEntry : MonoBehaviour
 
         // 按 15Hz 节奏驱动逻辑帧
         _tickAccumulator += Time.deltaTime;
-
-        // 战斗中仍采集键盘输入（Space放大招）
-        var rawInput = _logic.SampleLocalInput();
 
         while (_tickAccumulator >= TickInterval)
         {
@@ -94,8 +105,10 @@ public class LocalBattleEntry : MonoBehaviour
                 if (_selectUI != null && _selectUI.gameObject.activeSelf)
                     _selectUI.Hide();
 
-                // 战斗中：Space放大招
+                // 在 tick 内采样输入，避免 PendingUltRequest 在非 tick 帧被消费后丢失
+                var rawInput = _logic.SampleLocalInput();
                 p1Input.Buttons = rawInput.Buttons;
+                p1Input.MoveX = rawInput.MoveX;
             }
 
             var frame = new FrameData

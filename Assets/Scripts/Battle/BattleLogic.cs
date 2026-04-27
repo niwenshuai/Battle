@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using UnityEngine;
 
+// [InputSystem重构] 移除旧版 UnityEngine.Input 依赖，改用 GameInput 统一入口
+
 namespace FrameSync
 {
     /// <summary>
@@ -109,8 +111,11 @@ namespace FrameSync
             Debug.Log($"[Battle] 服务器结束游戏 winner={winnerId}");
         }
 
-        /// <summary>外部UI设置的选角输入（优先于键盘）。</summary>
-        [HideInInspector] public int PendingUISelection;
+    /// <summary>外部UI设置的选角输入（优先于键盘）。</summary>
+    [HideInInspector] public int PendingUISelection;
+
+    /// <summary>大招按钮点击请求（由UI按钮设置，SampleLocalInput消费）。0=无请求，>0=指定角色PlayerId。</summary>
+    [HideInInspector] public byte PendingUltRequest;
 
         public PlayerInput SampleLocalInput()
         {
@@ -125,38 +130,45 @@ namespace FrameSync
                     mx = PendingUISelection;
                     PendingUISelection = 0;
                 }
+                // [InputSystem重构] 选角数字键改用 GameInput.WasPressedThisFrame()
                 else
                 {
                     // 多角色选择：每次按键添加一个角色到队伍
                     CharacterType pick = CharacterType.None;
-                    if (Input.GetKeyDown(KeyCode.Alpha1) || Input.GetKeyDown(KeyCode.Keypad1))
-                        pick = CharacterType.Warrior;
-                    if (Input.GetKeyDown(KeyCode.Alpha2) || Input.GetKeyDown(KeyCode.Keypad2))
-                        pick = CharacterType.Archer;
-                    if (Input.GetKeyDown(KeyCode.Alpha3) || Input.GetKeyDown(KeyCode.Keypad3))
-                        pick = CharacterType.Assassin;
-                    if (Input.GetKeyDown(KeyCode.Alpha4) || Input.GetKeyDown(KeyCode.Keypad4))
-                        pick = CharacterType.Mage;
-                    if (Input.GetKeyDown(KeyCode.Alpha5) || Input.GetKeyDown(KeyCode.Keypad5))
-                        pick = CharacterType.Healer;
-                    if (Input.GetKeyDown(KeyCode.Alpha6) || Input.GetKeyDown(KeyCode.Keypad6))
-                        pick = CharacterType.Witch;
-                    if (Input.GetKeyDown(KeyCode.Alpha7) || Input.GetKeyDown(KeyCode.Keypad7))
-                        pick = CharacterType.Barbarian;
-                    if (Input.GetKeyDown(KeyCode.Alpha8) || Input.GetKeyDown(KeyCode.Keypad8))
-                        pick = CharacterType.LightningMage;
-                    if (Input.GetKeyDown(KeyCode.Alpha9) || Input.GetKeyDown(KeyCode.Keypad9))
-                        pick = CharacterType.Paladin;
-                    if (Input.GetKeyDown(KeyCode.Alpha0) || Input.GetKeyDown(KeyCode.Keypad0))
-                        pick = CharacterType.ThornWarrior;
+                    var gi = GameInput.Instance;
+                    if (gi != null)
+                    {
+                        if (gi.SelectKey1Pressed) pick = CharacterType.Warrior;
+                        else if (gi.SelectKey2Pressed) pick = CharacterType.Archer;
+                        else if (gi.SelectKey3Pressed) pick = CharacterType.Assassin;
+                        else if (gi.SelectKey4Pressed) pick = CharacterType.Mage;
+                        else if (gi.SelectKey5Pressed) pick = CharacterType.Healer;
+                        else if (gi.SelectKey6Pressed) pick = CharacterType.Witch;
+                        else if (gi.SelectKey7Pressed) pick = CharacterType.Barbarian;
+                        else if (gi.SelectKey8Pressed) pick = CharacterType.LightningMage;
+                        else if (gi.SelectKey9Pressed) pick = CharacterType.Paladin;
+                        else if (gi.SelectKey0Pressed) pick = CharacterType.ThornWarrior;
+                    }
                     if (pick != CharacterType.None)
                         mx = (int)pick;
                 }
             }
             else if (Phase == BattlePhase.Fighting)
             {
-                if (Input.GetKey(KeyCode.Space))
+                // [InputSystem重构] 大招键改用 GameInput.UltPressed (IsPressed)
+                // PendingUltRequest: 0=无请求, >0=指定角色PlayerId
+                var gi = GameInput.Instance;
+                bool ultKey = gi != null && gi.UltPressed;
+                if (ultKey || PendingUltRequest != 0)
+                {
                     buttons |= PlayerInput.ButtonFire;
+                    // 键盘Space: mx=0(全队大招), UI按钮: mx=指定角色PlayerId
+                    if (PendingUltRequest != 0)
+                    {
+                        mx = PendingUltRequest;
+                        PendingUltRequest = 0;
+                    }
+                }
             }
 
             return new PlayerInput { MoveX = mx, Buttons = buttons };
@@ -271,18 +283,29 @@ namespace FrameSync
 
         void TickCombat(FrameData frame)
         {
-            // 1. 读取玩家大招指令 — 对该玩家队伍所有活着的角色生效
+            // 1. 读取玩家大招指令 — MoveX>0 时仅对指定角色生效，否则全队生效
             foreach (var input in frame.LogicFrameInputs[0])
             {
                 byte pid = input.PlayerId;
                 if (pid < 1 || pid > 2) continue;
                 if ((input.Buttons & PlayerInput.ButtonFire) == 0) continue;
 
-                for (int i = 0; i < _fighters.Count; i++)
+                if (input.MoveX > 0)
                 {
-                    var f = _fighters[i];
-                    if (f.TeamId == pid && !f.IsDead)
-                        f.UltRequested = true;
+                    // 定向大招：仅触发指定角色
+                    var target = GetFighter(input.MoveX);
+                    if (target != null && target.TeamId == pid && !target.IsDead)
+                        target.UltRequested = true;
+                }
+                else
+                {
+                    // 全队大招（键盘Space）
+                    for (int i = 0; i < _fighters.Count; i++)
+                    {
+                        var f = _fighters[i];
+                        if (f.TeamId == pid && !f.IsDead)
+                            f.UltRequested = true;
+                    }
                 }
             }
 

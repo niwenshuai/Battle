@@ -1,6 +1,8 @@
 using UnityEngine;
 using FrameSync;
 
+// [InputSystem重构] F5/Esc 改用 GameInput
+
 /// <summary>
 /// 自动战斗入口脚本。挂到场景中任意 GameObject 上。
 ///
@@ -29,6 +31,13 @@ public class BattleEntry : MonoBehaviour
 
     void Start()
     {
+        // [InputSystem重构] 确保 GameInput 单例存在
+        if (GameInput.Instance == null)
+        {
+            var inputGO = new GameObject("GameInput");
+            inputGO.AddComponent<GameInput>();
+        }
+
         _logic  = gameObject.AddComponent<BattleLogic>();
         _client = gameObject.AddComponent<FrameSyncClient>();
 
@@ -37,6 +46,13 @@ public class BattleEntry : MonoBehaviour
         _view.EventSource         = _logic.EventQueue;
         _view.ClearEventsCallback = () => _logic.ClearEvents();
         _view.UseExternalSelectUI = true; // 禁用IMGUI选角界面
+
+        // 创建大招按钮UI
+        var ultBtnGO = new GameObject("UltimateButtonUI");
+        ultBtnGO.transform.SetParent(transform);
+        var ultBtn = ultBtnGO.AddComponent<UltimateButtonUI>();
+        ultBtn.OnUltRequested += (playerId) => _logic.PendingUltRequest = playerId;
+        _view.UltButtonUI = ultBtn;
 
         // 创建选角UI（网络模式）
         _selectUI = gameObject.AddComponent<CharacterSelectUI>();
@@ -74,9 +90,11 @@ public class BattleEntry : MonoBehaviour
     {
         if (_client == null) return;
 
-        if (Input.GetKeyDown(KeyCode.F5))
+        // [InputSystem重构] F5/Esc 改用 GameInput.WasPressedThisFrame()
+        var gi = GameInput.Instance;
+        if (gi != null && gi.ReadyPressed)
             _client.Ready();
-        if (Input.GetKeyDown(KeyCode.Escape))
+        if (gi != null && gi.EscapePressed)
             _client.LeaveRoom();
 
         // 传递连接信息给显示层（仅简单值传递，不暴露逻辑层对象）

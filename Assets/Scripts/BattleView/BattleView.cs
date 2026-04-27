@@ -181,6 +181,9 @@ public class BattleView : MonoBehaviour
     /// <summary>本地玩家 ID（用于 UI 标记）。</summary>
     [HideInInspector] public byte LocalPlayerId;
 
+    /// <summary>大招按钮UI引用（由入口脚本设置）。</summary>
+    [HideInInspector] public UltimateButtonUI UltButtonUI;
+
     // ════════════════════════════════════════════════════════════
     //  内部状态（全部从事件重建）
     // ════════════════════════════════════════════════════════════
@@ -193,6 +196,8 @@ public class BattleView : MonoBehaviour
     int _phase;                  // 0=Selecting, 1=Fighting, 2=Ended
     int _winnerId;
     readonly List<List<byte>> _teamSelections = new() { null, new(), new() }; // 1-based teams
+    byte _localTeamId;
+    bool _localTeamFound;
 
     // 用于显示连接/帧信息（由 BattleEntry 赋值）
     [HideInInspector] public string ConnectionInfo = "";
@@ -385,6 +390,11 @@ public class BattleView : MonoBehaviour
         {
             case BattleEventType.PhaseChanged:
                 _phase = evt.IntParam;
+                if (_phase == 0) // Selecting — 新游戏开始，清除旧按钮
+                {
+                    _localTeamFound = false;
+                    UltButtonUI?.Clear();
+                }
                 break;
 
             case BattleEventType.CharSelected:
@@ -562,6 +572,15 @@ public class BattleView : MonoBehaviour
         vf.StateSR.color = new Color(1f, 1f, 1f, 0f);
 
         _fighters[evt.SourceId] = vf;
+
+        // 为本地玩家队伍的角色添加大招按钮
+        if (!_localTeamFound && vf.PlayerId == LocalPlayerId)
+        {
+            _localTeamId = vf.TeamId;
+            _localTeamFound = true;
+        }
+        if (_localTeamFound && vf.TeamId == _localTeamId && UltButtonUI != null)
+            UltButtonUI.AddCharacter(vf.PlayerId, vf.HeadSR.sprite);
     }
 
     void OnMove(BattleEvent evt)
@@ -639,6 +658,15 @@ public class BattleView : MonoBehaviour
         {
             vf.AtkCooldownTotal = (int)(evt.PosYRaw >> 32);
             vf.UltCooldownTotal = (int)(evt.PosYRaw & 0xFFFFFFFF);
+        }
+
+        // 更新大招按钮CD
+        if (_localTeamFound && UltButtonUI != null)
+        {
+            int teamSize = CharacterConfig.TeamSize;
+            int fTeam = vf.TeamId > 0 ? vf.TeamId : (vf.PlayerId <= teamSize ? 1 : 2);
+            if (fTeam == _localTeamId)
+                UltButtonUI.UpdateCooldown(vf.PlayerId, vf.UltCooldownLeft, vf.UltCooldownTotal);
         }
     }
 

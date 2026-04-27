@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using UnityEngine;
 
+// [InputSystem重构] Space/数字键/J 改用 GameInput
+
 /// <summary>
 /// 演示用脚本：Start 时填充 200 条数据，运行期间可按 Space 键追加 20 条。
 /// </summary>
@@ -30,19 +32,23 @@ public class InfiniteScrollDemo : MonoBehaviour
 
     private void Update()
     {
+        var gi = GameInput.Instance;
+        if (gi == null) return;
+
+        // [InputSystem重构] Space/数字键/J 改用 GameInput.WasPressedThisFrame()
         // Space：追加一批数据
-        if (Input.GetKeyDown(KeyCode.Space))
+        if (gi.AppendPressed)
             AppendBatch();
 
         // 数字键 1-6：跳转到不同位置，展示不同缓动
-        if (Input.GetKeyDown(KeyCode.Alpha1)) _list.ScrollToIndex(0,   0.5f, InfiniteScrollList.Ease.Linear,    () => Debug.Log("Linear → 0"));
-        if (Input.GetKeyDown(KeyCode.Alpha2)) _list.ScrollToIndex(49,  0.5f, InfiniteScrollList.Ease.QuadIn,    () => Debug.Log("QuadIn → 49"));
-        if (Input.GetKeyDown(KeyCode.Alpha3)) _list.ScrollToIndex(99,  0.5f, InfiniteScrollList.Ease.QuadOut,   () => Debug.Log("QuadOut → 99"));
-        if (Input.GetKeyDown(KeyCode.Alpha4)) _list.ScrollToIndex(149, 0.5f, InfiniteScrollList.Ease.QuadInOut, () => Debug.Log("QuadInOut → 149"));
-        if (Input.GetKeyDown(KeyCode.Alpha5)) _list.ScrollToIndex(179, 0.6f, InfiniteScrollList.Ease.CubicOut,  () => Debug.Log("CubicOut → 179"));
-        if (Input.GetKeyDown(KeyCode.Alpha6)) _list.ScrollToIndex(199, 0.7f, InfiniteScrollList.Ease.BackOut,   () => Debug.Log("BackOut → 199"));
+        if (gi.ScrollKey1Pressed) _list.ScrollToIndex(0,   0.5f, InfiniteScrollList.Ease.Linear,    () => Debug.Log("Linear → 0"));
+        if (gi.ScrollKey2Pressed) _list.ScrollToIndex(49,  0.5f, InfiniteScrollList.Ease.QuadIn,    () => Debug.Log("QuadIn → 49"));
+        if (gi.ScrollKey3Pressed) _list.ScrollToIndex(99,  0.5f, InfiniteScrollList.Ease.QuadOut,   () => Debug.Log("QuadOut → 99"));
+        if (gi.ScrollKey4Pressed) _list.ScrollToIndex(149, 0.5f, InfiniteScrollList.Ease.QuadInOut, () => Debug.Log("QuadInOut → 149"));
+        if (gi.ScrollKey5Pressed) _list.ScrollToIndex(179, 0.6f, InfiniteScrollList.Ease.CubicOut,  () => Debug.Log("CubicOut → 179"));
+        if (gi.ScrollKey6Pressed) _list.ScrollToIndex(199, 0.7f, InfiniteScrollList.Ease.BackOut,   () => Debug.Log("BackOut → 199"));
         // J：立即跳转到索引 100（无动画）
-        if (Input.GetKeyDown(KeyCode.J)) _list.JumpToIndex(100);
+        if (gi.JumpToPressed) _list.JumpToIndex(100);
     }
 
     /// <summary>追加一批数据，保持当前滚动位置。</summary>

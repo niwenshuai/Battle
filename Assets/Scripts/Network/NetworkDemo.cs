@@ -1,6 +1,8 @@
 using System.Text;
 using UnityEngine;
 
+// [InputSystem重构] T/X/R 改用 GameInput
+
 /// <summary>
 /// 网络框架使用示例。挂到任意 GameObject 上即可测试。
 /// </summary>
@@ -27,22 +29,26 @@ public class NetworkDemo : MonoBehaviour
 
     private void Update()
     {
+        var gi = GameInput.Instance;
+        if (gi == null) return;
+
+        // [InputSystem重构] T/X/R 改用 GameInput.WasPressedThisFrame()
         // 按 T 发送一条测试消息
-        if (Input.GetKeyDown(KeyCode.T) && NetworkManager.Instance != null)
+        if (gi.SendPressed && NetworkManager.Instance != null)
         {
             NetworkManager.Instance.Send("Hello Server " + Time.frameCount);
             Debug.Log("[Demo] 已发送测试消息");
         }
 
         // 按 X 主动断开
-        if (Input.GetKeyDown(KeyCode.X) && NetworkManager.Instance != null)
+        if (gi.DisconnectPressed && NetworkManager.Instance != null)
         {
             NetworkManager.Instance.Disconnect();
             Debug.Log("[Demo] 主动断开");
         }
 
         // 按 R 重新连接
-        if (Input.GetKeyDown(KeyCode.R) && NetworkManager.Instance != null)
+        if (gi.ReconnectPressed && NetworkManager.Instance != null)
         {
             NetworkManager.Instance.Connect();
             Debug.Log("[Demo] 手动重连");
